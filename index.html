@@ -99,6 +99,7 @@
   .bank-card b { font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .bank-card .chip { width: 30px; height: 22px; border-radius: 6px; background: linear-gradient(135deg, #f7dc8b, #c9a14a); }
   .bank-card.sel { outline: 3px solid var(--accent); outline-offset: 3px; }
+  .bank-card:disabled { opacity: .4; filter: grayscale(.7); cursor: not-allowed; }
   .bank-card.sel::after { content: '✓'; position: absolute; top: 10px; right: 10px; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: #fff; color: #111; font-size: 13px; font-weight: 700; }
   .card-wrap { position: relative; }
   .card-del { position: absolute; top: -8px; right: -8px; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--danger); color: #fff; box-shadow: 0 2px 8px rgba(0, 0, 0, .2); }
@@ -162,6 +163,53 @@
   .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   .tile { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 18px 12px; border-radius: 20px; background: var(--card); box-shadow: var(--shadow); font-weight: 600; }
   .tile span { font-size: 28px; }
+  .link { color: var(--accent); font-weight: 600; }
+  .note .link { margin-left: 4px; }
+  .warn { color: var(--danger); }
+  .icon-btn.danger { color: var(--danger); }
+  .choice small { display: block; margin-top: 2px; font-size: 13px; font-weight: 500; color: var(--muted); }
+  .setup-card + .setup-card { margin-top: 12px; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+  .meter { display: block; height: 6px; margin-top: 6px; border-radius: 3px; background: var(--fill); overflow: hidden; }
+  .meter i { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
+  .card-meta { margin: 8px 2px 0; font-size: 12px; color: var(--muted); }
+  .debt-list { border-radius: 20px; background: var(--card); box-shadow: var(--shadow); overflow: hidden; }
+  .debt-list > * + * { border-top: .5px solid var(--sep); }
+  .debt-row { display: flex; align-items: center; gap: 8px; padding: 12px 10px 12px 16px; }
+  .debt-main { flex: 1; min-width: 0; text-align: left; }
+  .debt-main b { display: block; font-weight: 600; }
+  .debt-main small { color: var(--muted); font-size: 13px; }
+  .add-debt { width: 100%; padding: 14px; color: var(--accent); font-weight: 600; }
+  .success-line { font-weight: 600; color: var(--text) !important; }
+  .goal { padding: 14px 12px 8px 16px; border-radius: 20px; background: var(--card); box-shadow: var(--shadow); }
+  .goal + .goal { margin-top: 12px; }
+  .goal-main { display: block; width: 100%; text-align: left; }
+  .goal-head { display: flex; align-items: center; gap: 12px; }
+  .goal-head b { display: block; font-weight: 600; }
+  .goal-head small, .goal-main > small { color: var(--muted); font-size: 13px; }
+  .goal-daily { display: block; margin: 12px 0 2px; font-size: 15px; }
+  .goal-daily b { font: 700 22px var(--round); }
+  .goal-main > small { display: block; margin-top: 6px; }
+  .goal-actions { display: flex; align-items: center; margin-top: 4px; }
+  .goal-actions .icon-btn { margin-left: auto; }
+  .sheet-preview { margin: 12px 4px 0; font-size: 15px; }
+  .sheet-preview:empty { display: none; }
+  .sheet input[type=date] { min-height: 54px; text-align: left; -webkit-appearance: none; appearance: none; }
+  .sheet input[type=date]::-webkit-date-and-time-value { text-align: left; }
+
+  /* Edit form: a card near the top so the iPhone keyboard never covers it */
+  .sheet { width: calc(100% - 32px); max-width: 480px; margin: calc(env(safe-area-inset-top) + 48px) auto auto; padding: 20px 16px 16px; border: 0; border-radius: 28px; background: var(--bg); color: var(--text); box-shadow: 0 20px 60px rgba(0, 0, 0, .3); }
+  .sheet[open] { animation: sheet-in .35s var(--spring); }
+  .sheet::backdrop { background: rgba(0, 0, 0, .35); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }
+  .sheet h3 { margin-bottom: 4px; text-align: center; font: 700 22px var(--round); }
+  .sheet label { display: block; margin: 12px 4px 0; font-size: 13px; font-weight: 600; color: var(--muted); }
+  .sheet label .field { margin-top: 6px; font-size: 17px; font-weight: 400; color: var(--text); }
+  .sheet-error { min-height: 18px; margin: 10px 4px 0; font-size: 14px; color: var(--danger); }
+  .sheet-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 8px; }
+  .sheet-actions button { margin-top: 0; padding: 15px; border-radius: 16px; font-weight: 600; }
+  .secondary { background: var(--fill); }
+  @keyframes sheet-in { from { opacity: 0; transform: translateY(-24px) scale(.96); } }
+
   .themes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 12px; }
   .theme { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 10px 8px; border-radius: 18px; border: 2px solid transparent; background: var(--card); box-shadow: var(--shadow); font-size: 14px; font-weight: 600; }
   .theme span { width: 100%; aspect-ratio: 2; border-radius: 12px; }
@@ -200,6 +248,7 @@
   <button data-act="tab" data-v="registrar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>Registrar</button>
   <button data-act="tab" data-v="historial"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/></svg>Historial</button>
   <button data-act="tab" data-v="estadisticas"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 20v-8M12 20V5M19 20v-11"/></svg>Estadísticas</button>
+  <button data-act="tab" data-v="ahorros"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></svg>Ahorros</button>
   <button data-act="tab" data-v="perfil"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>Perfil</button>
 </nav>
 <script type="module" src="app.js"></script>

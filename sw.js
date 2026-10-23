@@ -1,5 +1,5 @@
 // Cache-first so the app opens with no internet. Bump VERSION on every deploy so the iPhone picks up the new files.
-const VERSION = 'v4';
+const VERSION = 'v9';
 const FILES = ['./', 'index.html', 'app.js', 'logic.js', 'manifest.webmanifest', 'icon.png'];
 
 self.addEventListener('install', e => {

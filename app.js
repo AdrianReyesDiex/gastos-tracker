@@ -1,4 +1,5 @@
-import { parseAmount, periodRange, filterExpenses, totalsBy, timeBins, validBackup } from './logic.js';
+import { cleanMoney, parseMoney, parseAmount, cardUsed, debtLeft, periodRange, filterExpenses, totalsBy, timeBins, validBackup,
+  localDate, daysUntil, goalPlan } from './logic.js';
 
 const KEY = 'gastos-v1';
 const THEME_KEY = 'gastos-tema';
@@ -33,11 +34,16 @@ const GRADIENTS = {
 const $app = document.getElementById('app');
 const $nav = document.querySelector('nav');
 
-// { name, cards: [{id, type, name}], expenses: [{id, amount (cents), category, method, cardId?, cardName?, date (ms)}] }
+// { name, cards: [{id, type, name, limit?, startUsed?, since?}], debts: [{id, name, total, since?}],
+//   expenses: [{id, amount (cents), category, detail?, debtId?, method, cardId?, cardName?, date (ms)}] }
+// Money is in cents. A "Deuda" expense pays the card or debt in `debtId`.
 let db = JSON.parse(localStorage.getItem(KEY));
+// goals: [{id, name, amount, saved, date: 'YYYY-MM-DD'}]
+const upgrade = data => { data.debts ??= []; data.goals ??= []; return data; }; // data saved before debts/goals existed
+if (db) upgrade(db);
 let tab = 'registrar';
 let draft = null; // expense being registered
-const setup = { name: '', debito: [], credito: [] };
+const setup = { name: '', debito: [], credito: [] }; // card entries: { name, limit, used } as typed
 const filter = { period: 'mes', offset: 0, method: 'todos' };
 const theme = { color: 'indigo', scheme: '', ...JSON.parse(localStorage.getItem(THEME_KEY)) };
 
@@ -63,10 +69,16 @@ const time = d => new Date(d).toLocaleTimeString('es-MX', { hour: 'numeric', min
 const icon = d => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${d}"/></svg>`;
 const cardsOf = type => db.cards.filter(c => c.type === type);
 const cardBg = c => `--g: linear-gradient(135deg, ${GRADIENTS[c.type][cardsOf(c.type).indexOf(c) % 3]})`;
-const cardFace = c => `<span class="chip"></span><span><small>${METHODS[c.type].label}</small><b>${esc(c.name)}</b></span>`;
+const available = c => c.limit - cardUsed(c, db.expenses);
+const cardFace = (c, sub = c.type === 'debito' ? 'Débito' : c.limit ? `Disponible ${money(available(c))}` : 'Crédito · sin límite') =>
+  `<span class="chip"></span><span><small>${sub}</small><b>${esc(c.name)}</b></span>`;
+const cardButton = (c, act, selected, sub, disabled) =>
+  `<button class="bank-card ${selected ? 'sel' : ''}" style="${cardBg(c)}" data-act="${act}" data-v="${esc(c.id)}" ${disabled ? 'disabled' : ''}>${cardFace(c, sub)}</button>`;
+const owedOnCard = c => cardUsed(c, db.expenses);
 // The card's current name; falls back to the name saved with the expense if the card was deleted.
 const payLabel = e => e.method === 'efectivo' ? 'Efectivo' : `${METHODS[e.method].label} · ${db.cards.find(c => c.id === e.cardId)?.name ?? e.cardName}`;
 const catLabel = e => e.detail ? `${e.category} · ${e.detail}` : e.category;
+const meter = (part, whole) => `<span class="meter"><i style="width:${whole ? Math.min(100, Math.max(0, part / whole * 100)) : 100}%"></i></span>`;
 const sum = list => list.reduce((total, e) => total + e.amount, 0);
 
 function dayLabel(d) {
@@ -117,14 +129,144 @@ function showError(msg) {
   animate($app.querySelector('.primary'), [0, -8, 8, -5, 5, 0].map(x => ({ transform: `translateX(${x}px)` })), { duration: 380 });
 }
 
-function celebrate(e) {
+function celebrate(title, text, lines = []) {
   const el = Object.assign(document.createElement('div'), { className: 'success', role: 'status' });
   el.innerHTML = `<svg viewBox="0 0 52 52" aria-hidden="true"><circle cx="26" cy="26" r="24"/><path d="M15 27l7 7 15-15"/></svg>
-    <b>¡Gasto registrado!</b><span>${money(e.amount)} · ${esc(catLabel(e))} · ${esc(payLabel(e))}</span>`;
+    <b>${esc(title)}</b><span>${esc(text)}</span>
+    ${lines.map(l => `<span class="success-line">${esc(l)}</span>`).join('')}`;
   document.body.append(el);
   const close = () => { el.classList.add('out'); setTimeout(() => el.remove(), 300); };
   el.onclick = close;
-  setTimeout(close, 1600);
+  setTimeout(close, lines.length ? 2600 : 1600); // longer when there are balances to read
+}
+
+// Small form in a native <dialog>; onSave returns an error message to keep it open.
+// `preview(values)` (optional) returns HTML shown under the fields while typing.
+function openSheet(title, fields, onSave, preview) {
+  const d = Object.assign(document.createElement('dialog'), { className: 'sheet' });
+  d.innerHTML = `
+    <form method="dialog" novalidate>
+      <h3>${esc(title)}</h3>
+      ${fields.map(f => `<label>${f.label}<input class="field" name="${f.name}" value="${esc(f.value ?? '')}"
+        ${f.money ? 'inputmode="decimal" placeholder="$0.00"' : f.attrs ?? `placeholder="${esc(f.placeholder ?? '')}"`}></label>`).join('')}
+      <p class="sheet-preview" aria-live="polite"></p>
+      <p class="sheet-error" role="alert"></p>
+      <div class="sheet-actions">
+        <button type="button" class="secondary">Cancelar</button>
+        <button class="primary">Guardar</button>
+      </div>
+    </form>`;
+  d.querySelector('.secondary').onclick = () => d.close();
+  d.querySelector('form').onsubmit = e => {
+    const error = onSave(Object.fromEntries(new FormData(e.target)));
+    if (error) { e.preventDefault(); d.querySelector('.sheet-error').textContent = error; }
+  };
+  if (preview) {
+    const form = d.querySelector('form');
+    const update = () => { d.querySelector('.sheet-preview').innerHTML = preview(Object.fromEntries(new FormData(form))); };
+    form.oninput = update;
+    update();
+  }
+  d.onclose = () => d.remove();
+  document.body.append(d);
+  d.showModal();
+}
+
+const daysText = n => n === 1 ? '1 día' : `${n} días`;
+
+function editGoal(goal) {
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  openSheet(goal ? 'Editar meta' : 'Nueva meta', [
+    { name: 'name', label: 'Nombre', value: goal?.name, placeholder: 'ej. Viaje a Cancún' },
+    { name: 'amount', label: 'Monto de la meta', value: goal ? goal.amount / 100 : '', money: true },
+    { name: 'date', label: 'Fecha prevista', value: goal?.date, attrs: `type="date" min="${tomorrow.toLocaleDateString('en-CA')}"` },
+    { name: 'saved', label: 'Ya ahorrado (opcional)', value: goal?.saved ? goal.saved / 100 : '', money: true },
+  ], v => {
+    const name = v.name.trim(), amount = parseAmount(v.amount), saved = parseMoney(v.saved);
+    if (!name) return 'Escribe un nombre para la meta';
+    if (!amount) return 'Escribe el monto de la meta';
+    if (!v.date) return 'Elige la fecha prevista';
+    if (v.date !== goal?.date && daysUntil(v.date) < 1) return 'La fecha tiene que ser después de hoy';
+    if (saved === null || saved > amount) return 'Lo ahorrado no puede ser mayor que la meta';
+    const g = goal ?? { id: uid() };
+    Object.assign(g, { name, amount, saved, date: v.date });
+    if (!goal) db.goals.push(g);
+    save();
+    render();
+    pop(byV(g.id));
+    const plan = goalPlan(g);
+    if (goal) toast('Meta actualizada');
+    else celebrate('¡Meta creada!', `${name} · ${money(amount)}`, plan.done ? [] : [`Ahorra ${money(plan.daily)} al día durante ${daysText(plan.days)}`]);
+  }, v => {
+    const amount = parseAmount(v.amount), saved = parseMoney(v.saved) ?? 0;
+    if (!amount || !v.date || daysUntil(v.date) < 1) return '';
+    const plan = goalPlan({ amount, saved, date: v.date });
+    return plan.done ? '✓ Ya tienes todo ahorrado' : `💡 Tendrás que ahorrar <b>${money(plan.daily)}</b> al día durante ${daysText(plan.days)}`;
+  });
+}
+
+function addToGoal(goal) {
+  const { left } = goalPlan(goal);
+  openSheet(`Abonar a ${goal.name}`, [{ name: 'amount', label: `¿Cuánto ahorraste? Te faltan ${money(left)}`, money: true }], v => {
+    const amount = parseAmount(v.amount);
+    if (!amount) return 'Escribe cuánto ahorraste';
+    if (amount > left) return `Solo te faltan ${money(left)}`;
+    goal.saved += amount;
+    save();
+    render();
+    pop(byV(goal.id));
+    const plan = goalPlan(goal);
+    if (plan.done) celebrate('¡Meta cumplida!', `${goal.name} · ${money(goal.amount)}`);
+    else toast(plan.overdue ? 'Ahorro agregado' : `Ahorro agregado · ahora ${money(plan.daily)} al día`);
+  });
+}
+
+function editCard(card, type) {
+  const credit = type === 'credito', used = card && credit ? cardUsed(card, db.expenses) : 0;
+  openSheet(card ? 'Editar tarjeta' : `Nueva tarjeta de ${METHODS[type].label.toLowerCase()}`, [
+    { name: 'name', label: 'Identificador', value: card?.name, placeholder: 'ej. BBVA 1234' },
+    ...(credit ? [
+      { name: 'limit', label: 'Límite de crédito', value: card?.limit ? card.limit / 100 : '', money: true },
+      { name: 'used', label: 'Saldo en uso hoy', value: used ? used / 100 : '', money: true },
+    ] : []),
+  ], v => {
+    const name = v.name.trim(), limit = parseMoney(v.limit), newUsed = parseMoney(v.used);
+    if (!name) return 'Escribe un identificador';
+    if (limit === null || newUsed === null) return 'Revisa los montos';
+    if (credit && limit && newUsed > limit) return 'El saldo en uso no puede ser mayor al límite';
+    const c = card ?? { id: uid(), type, name };
+    c.name = name;
+    if (credit) {
+      c.limit = limit;
+      if (!card || newUsed !== used) Object.assign(c, { startUsed: newUsed, since: Date.now() }); // typed balance becomes the new starting point
+    }
+    if (!card) db.cards.push(c);
+    save();
+    render();
+    pop(byV(c.id));
+    toast(card ? 'Tarjeta actualizada' : 'Tarjeta agregada');
+  });
+}
+
+function editDebt(debt) {
+  const left = debt ? debtLeft(debt, db.expenses) : 0;
+  openSheet(debt ? 'Editar deuda' : 'Nueva deuda', [
+    { name: 'name', label: 'Nombre', value: debt?.name, placeholder: 'ej. Préstamo de Juan' },
+    { name: 'owed', label: '¿Cuánto debes hoy?', value: debt ? left / 100 : '', money: true },
+  ], v => {
+    const name = v.name.trim(), owed = parseMoney(v.owed);
+    if (!name) return 'Escribe el nombre de la deuda';
+    if (owed === null) return 'Revisa el monto';
+    const d = debt ?? { id: uid(), name, total: 0 };
+    d.name = name;
+    if (!debt || owed !== left) Object.assign(d, { total: owed, since: Date.now() }); // typed balance becomes the new starting point
+    if (!debt) db.debts.push(d);
+    save();
+    render();
+    pop(byV(d.id));
+    toast(debt ? 'Deuda actualizada' : 'Deuda agregada');
+  });
 }
 
 // ---------- Views ----------
@@ -134,7 +276,7 @@ function render() {
   $nav.hidden = !db;
   if (!db) return void ($app.innerHTML = viewSetup());
   for (const b of $nav.children) b.classList.toggle('active', b.dataset.v === tab);
-  $app.innerHTML = { registrar: viewRegistrar, historial: viewHistorial, estadisticas: viewEstadisticas, perfil: viewPerfil }[tab]();
+  $app.innerHTML = { registrar: viewRegistrar, historial: viewHistorial, estadisticas: viewEstadisticas, ahorros: viewAhorros, perfil: viewPerfil }[tab]();
 }
 
 function viewSetup() {
@@ -147,7 +289,14 @@ function viewSetup() {
         <button data-act="setup-count" data-type="${type}" data-d="1" aria-label="Agregar tarjeta">+</button>
       </span>
     </div>
-    ${setup[type].map((v, i) => `<input class="field" data-input="setup-card" data-type="${type}" data-i="${i}" value="${esc(v)}" placeholder="Tarjeta ${i + 1} (ej. BBVA 1234)">`).join('')}`;
+    ${setup[type].map((card, i) => {
+      const field = (f, attrs) => `<input class="field" data-input="setup-card" data-type="${type}" data-i="${i}" data-f="${f}" value="${esc(card[f])}" ${attrs}>`;
+      return `
+        <div class="setup-card" data-type="${type}">
+          ${field('name', `placeholder="Tarjeta ${i + 1} (ej. BBVA 1234)"`)}
+          ${type === 'credito' ? `<div class="two">${field('limit', 'inputmode="decimal" placeholder="Límite $"')}${field('used', 'inputmode="decimal" placeholder="En uso $"')}</div>` : ''}
+        </div>`;
+    }).join('')}`;
   return `
     <div class="welcome"><span class="avatar">💸</span><h1>Bienvenido</h1><p class="muted">Configura tu app en un minuto.</p></div>
     <h2>👤 Tu nombre</h2>
@@ -175,8 +324,8 @@ function viewRegistrar() {
     <button class="primary" data-act="next">${draft.step === 2 ? 'Guardar gasto' : 'Siguiente'}</button>`;
 }
 
-const choice = (act, value, label, emoji, color, selected, cls = '') =>
-  `<button class="choice ${cls} ${selected ? 'sel' : ''}" style="--c:${color}" data-act="${act}" data-v="${esc(value)}"><span class="ico">${emoji}</span>${esc(label)}</button>`;
+const choice = (act, value, label, emoji, color, selected, cls = '', sub = '') =>
+  `<button class="choice ${cls} ${selected ? 'sel' : ''}" style="--c:${color}" data-act="${act}" data-v="${esc(value)}"><span class="ico">${emoji}</span><span>${esc(label)}${sub ? `<small>${esc(sub)}</small>` : ''}</span></button>`;
 
 function stepAmount() {
   return `
@@ -195,20 +344,83 @@ function stepCategory() {
     ${draft.custom ? `<input class="field" style="--c:var(--cat-${OTHER.c})" data-input="cat-other" value="${esc(draft.category)}" placeholder="¿Qué fue? (ej. Regalo)">` : ''}
     ${hasDetail() ? `
       <input class="field" style="--c:var(--cat-${CATEGORIES[draft.category].c})" data-input="detail" value="${esc(draft.detail)}" placeholder="${CATEGORIES[draft.category].detail}">
-      <p class="note">Opcional. Si lo dejas vacío se guarda como «General».</p>` : ''}`;
+      <p class="note">Opcional. Si lo dejas vacío se guarda como «General».</p>` : ''}
+    ${isDebt() ? viewDebtPicker() : ''}`;
 }
 
 const hasDetail = () => !draft.custom && !!CATEGORIES[draft.category]?.detail;
+const isDebt = () => !draft.custom && draft.category === 'Deuda';
+const payingCard = () => isDebt() && draft.debtKind === 'card'; // credit cards can only be paid from a debit card
+const NO_DEBT = { debtKind: null, debtId: null, newDebtName: '', newDebtTotal: '' };
+
+function viewDebtPicker() {
+  const cards = cardsOf('credito');
+  const debts = db.debts.filter(d => debtLeft(d, db.expenses) > 0);
+  const cardList = cards.length
+    ? `<div class="bank-cards">${cards.map(c => {
+      const owed = owedOnCard(c);
+      return cardButton(c, 'debt', draft.debtId === c.id, owed ? `Debes ${money(owed)}` : 'Sin deuda', !owed);
+    }).join('')}</div>
+    ${cards.some(owedOnCard) ? '' : '<p class="note">Ninguna de tus tarjetas de crédito tiene deuda por pagar.</p>'}`
+    : '<p class="note">No tienes tarjetas de crédito. Agrégalas en Perfil.</p>';
+  const debtList = `
+    <div class="choices">
+      ${debts.map(d => choice('debt', d.id, d.name, '📄', 'var(--cat-4)', draft.debtId === d.id, '', `Debes ${money(debtLeft(d, db.expenses))}`)).join('')}
+      ${choice('debt', 'new', 'Nueva deuda', '➕', 'var(--cat-4)', draft.debtId === 'new', 'wide')}
+    </div>
+    ${draft.debtId === 'new' ? `
+      <input class="field" data-input="debt-name" value="${esc(draft.newDebtName)}" placeholder="Nombre (ej. Préstamo de Juan)">
+      <input class="field" data-input="debt-total" inputmode="decimal" value="${esc(draft.newDebtTotal)}" placeholder="¿Cuánto debes en total? $">` : ''}`;
+  return `
+    <div class="debt-picker">
+      <h2>¿Qué deuda pagas?</h2>
+      ${segmented('debt-kind', 'kind', { card: '💳 Tarjeta de crédito', debt: '📄 Otra deuda' }, draft.debtKind)}
+      ${draft.debtKind === 'card' ? cardList : draft.debtKind === 'debt' ? debtList : ''}
+      <p class="note debt-note">${debtNote()}</p>
+    </div>`;
+}
+
+// What the selected card/debt owes before this payment, or null if nothing (valid) is selected yet.
+function debtOwed() {
+  if (!isDebt() || !draft.debtId) return null;
+  if (draft.debtId === 'new') return parseAmount(draft.newDebtTotal);
+  const card = db.cards.find(c => c.id === draft.debtId);
+  if (card) return owedOnCard(card);
+  const debt = db.debts.find(d => d.id === draft.debtId);
+  return debt ? debtLeft(debt, db.expenses) : null;
+}
+
+// Abono vs. liquidar: the amount typed in step 1 decides; "Liquidar todo" sets it to the full balance.
+// Paying more than what's owed isn't allowed (next() blocks it), so the note offers to fix the amount.
+function debtNote() {
+  const owed = debtOwed(), pay = parseAmount(draft.amountText);
+  if (owed === null) return '';
+  if (owed === 0) return '<span class="warn">No hay deuda por pagar</span>';
+  if (pay === owed) return '✓ Con este pago liquidas la deuda';
+  const liquidar = `<button class="link" data-act="liquidar">Liquidar todo (${money(owed)})</button>`;
+  if (pay > owed) return `<span class="warn">⚠️ Pagas ${money(pay - owed)} de más; lo máximo es ${money(owed)}.</span>${liquidar}`;
+  return `Abono de ${money(pay)} · te quedarán ${money(owed - pay)}${liquidar}`;
+}
 
 function stepMethod() {
   const cards = cardsOf(draft.method);
   const cardList = cards.length
-    ? `<div class="bank-cards">${cards.map(c => `<button class="bank-card ${draft.cardId === c.id ? 'sel' : ''}" style="${cardBg(c)}" data-act="card" data-v="${esc(c.id)}">${cardFace(c)}</button>`).join('')}</div>`
+    ? `<div class="bank-cards">${cards.map(c => cardButton(c, 'card', draft.cardId === c.id)).join('')}</div>`
     : `<p class="note">No tienes tarjetas de ${METHODS[draft.method]?.label.toLowerCase()}. Agrégalas en Perfil.</p>`;
+  const over = overLimit();
+  const methods = payingCard() ? { debito: METHODS.debito } : METHODS;
   return `
     <h1>¿Cómo pagaste?</h1>
-    <div class="choices three">${Object.entries(METHODS).map(([k, m]) => choice('method', k, m.label, m.icon, m.color, draft.method === k)).join('')}</div>
-    ${draft.method && draft.method !== 'efectivo' ? `<h2>Elige la tarjeta</h2>${cardList}` : ''}`;
+    ${payingCard() ? '<p class="note">Las tarjetas de crédito solo se pagan con una tarjeta de débito.</p>' : `
+      <div class="choices three">${Object.entries(methods).map(([k, m]) => choice('method', k, m.label, m.icon, m.color, draft.method === k)).join('')}</div>`}
+    ${draft.method && draft.method !== 'efectivo' ? `<h2>Elige la tarjeta</h2>${cardList}` : ''}
+    ${over > 0 ? `<p class="note warn">⚠️ Este gasto supera tu disponible por ${money(over)}</p>` : ''}`;
+}
+
+// How much this expense goes over the selected credit card's available credit (≤ 0 if it fits).
+function overLimit() {
+  const card = db.cards.find(c => c.id === draft.cardId);
+  return card?.type === 'credito' && card.limit ? parseAmount(draft.amountText) - available(card) : 0;
 }
 
 const segmented = (act, key, opts, current) => `<div class="segmented">${Object.entries(opts).map(([k, label]) =>
@@ -317,12 +529,63 @@ function viewDonut(list, total) {
     </div>`;
 }
 
+function viewAhorros() {
+  const plans = db.goals.map(g => ({ g, ...goalPlan(g) }))
+    .sort((a, b) => a.done - b.done || a.g.date.localeCompare(b.g.date)); // closest date first, finished last
+  const active = plans.filter(p => !p.done && !p.overdue);
+  const totalDaily = active.reduce((total, p) => total + p.daily, 0);
+  const status = ({ left, days, daily, done, overdue }) =>
+    done ? '🎉 ¡Meta cumplida!'
+    : overdue ? `<span class="warn">La fecha ya pasó · te faltan ${money(left)}</span>`
+    : `<b>${money(daily)}</b> al día · ${days === 0 ? 'hoy es la fecha' : `faltan ${daysText(days)}`}`;
+  const card = p => `
+    <div class="goal">
+      <button class="goal-main" data-act="edit-goal" data-v="${esc(p.g.id)}">
+        <span class="goal-head">
+          <span class="ico" style="--c:var(--accent)">${p.done ? '🏆' : '🎯'}</span>
+          <span><b>${esc(p.g.name)}</b><small>Meta ${money(p.g.amount)} · ${fmtDate(localDate(p.g.date), { day: 'numeric', month: 'short', year: 'numeric' })}</small></span>
+        </span>
+        <span class="goal-daily">${status(p)}</span>
+        ${meter(p.g.saved, p.g.amount)}
+        <small>Llevas ${money(p.g.saved)} de ${money(p.g.amount)} (${Math.floor(p.g.saved / p.g.amount * 100)}%)</small>
+      </button>
+      <div class="goal-actions">
+        ${p.done ? '' : `<button class="link" data-act="save-goal" data-v="${esc(p.g.id)}">+ Abonar</button>`}
+        <button class="icon-btn danger" data-act="del-goal" data-v="${esc(p.g.id)}" aria-label="Eliminar ${esc(p.g.name)}">${icon('M6 6l12 12M18 6L6 18')}</button>
+      </div>
+    </div>`;
+  return `
+    <h1>Ahorros y metas</h1>
+    ${active.length ? `
+      <div class="summary">
+        <div><small>${active.length > 1 ? `Para cumplir tus ${active.length} metas` : 'Para cumplir tu meta'} ahorra</small><b>${money(totalDaily)} al día</b></div>
+      </div>` : ''}
+    ${plans.length ? `<h2>Tus metas</h2>${plans.map(card).join('')}` : '<p class="empty"><span>🎯</span>Aún no tienes metas de ahorro</p>'}
+    <button class="primary" data-act="add-goal">+ Nueva meta</button>
+    ${plans.length ? '<p class="note center">Toca una meta para editarla</p>' : ''}`;
+}
+
 function viewPerfil() {
-  const cards = type => cardsOf(type).map(c => `
-    <div class="card-wrap">
-      <button class="bank-card" style="${cardBg(c)}" data-act="rename-card" data-v="${esc(c.id)}" aria-label="Renombrar ${esc(c.name)}">${cardFace(c)}</button>
-      <button class="card-del" data-act="del-card" data-v="${esc(c.id)}" aria-label="Eliminar ${esc(c.name)}">${icon('M6 6l12 12M18 6L6 18')}</button>
-    </div>`).join('');
+  const cards = type => cardsOf(type).map(c => {
+    const used = cardUsed(c, db.expenses);
+    return `
+      <div class="card-wrap">
+        ${cardButton(c, 'edit-card', false)}
+        <button class="card-del" data-act="del-card" data-v="${esc(c.id)}" aria-label="Eliminar ${esc(c.name)}">${icon('M6 6l12 12M18 6L6 18')}</button>
+        ${type === 'credito' && c.limit ? `<p class="card-meta">Usado ${money(used)} de ${money(c.limit)}${meter(used, c.limit)}</p>` : ''}
+      </div>`;
+  }).join('');
+  const debtRow = d => {
+    const left = debtLeft(d, db.expenses);
+    return `
+      <div class="debt-row">
+        <button class="debt-main" data-act="edit-debt" data-v="${esc(d.id)}">
+          <span><b>${esc(d.name)}</b><small>${left ? `Debes ${money(left)} de ${money(d.total)}` : 'Liquidada ✓'}</small></span>
+          ${meter(d.total - left, d.total)}
+        </button>
+        <button class="icon-btn danger" data-act="del-debt" data-v="${esc(d.id)}" aria-label="Eliminar ${esc(d.name)}">${icon('M6 6l12 12M18 6L6 18')}</button>
+      </div>`;
+  };
   const count = db.expenses.length === 1 ? '1 gasto guardado' : `${db.expenses.length} gastos guardados`;
   return `
     <div class="profile">
@@ -333,7 +596,9 @@ function viewPerfil() {
     ${['debito', 'credito'].map(t => `
       <h2>${METHODS[t].icon} Tarjetas de ${METHODS[t].label.toLowerCase()}</h2>
       <div class="bank-cards">${cards(t)}<button class="add-card" data-act="add-card" data-v="${t}">+ Agregar</button></div>`).join('')}
-    <p class="note">Toca una tarjeta para cambiarle el nombre.</p>
+    <p class="note">Toca una tarjeta para editar su nombre, límite y saldo en uso.</p>
+    <h2>📄 Otras deudas</h2>
+    <div class="debt-list">${db.debts.map(debtRow).join('')}<button class="add-debt" data-act="add-debt">+ Agregar deuda</button></div>
     <h2>🎨 Tema</h2>
     <div class="themes">${Object.entries(THEMES).map(([k, t]) => `
       <button class="theme ${theme.color === k ? 'sel' : ''}" data-act="theme" data-k="color" data-v="${k}"><span style="background:${t.brand}"></span>${t.name}</button>`).join('')}</div>
@@ -375,23 +640,28 @@ const actions = {
     pop($nav.querySelector('.active svg'));
   },
   'setup-count': ({ type, d }) => {
-    if (+d > 0 && setup[type].length < 10) setup[type].push('');
+    if (+d > 0 && setup[type].length < 10) setup[type].push({ name: '', limit: '', used: '' });
     if (+d < 0) setup[type].pop();
     render();
-    if (+d > 0) enter([...$app.querySelectorAll(`.field[data-type=${type}]`)].slice(-1));
+    if (+d > 0) enter([...$app.querySelectorAll(`.setup-card[data-type=${type}]`)].slice(-1));
   },
   'setup-done': () => {
     if (!setup.name.trim()) return showError('Escribe tu nombre');
-    if ([...setup.debito, ...setup.credito].some(n => !n.trim())) return showError('Ponle un identificador a cada tarjeta');
-    const cards = type => setup[type].map(name => ({ id: uid(), type, name: name.trim() }));
-    db = { name: setup.name.trim(), cards: [...cards('debito'), ...cards('credito')], expenses: [] };
+    if ([...setup.debito, ...setup.credito].some(c => !c.name.trim())) return showError('Ponle un identificador a cada tarjeta');
+    if (setup.credito.some(c => parseMoney(c.limit) === null || parseMoney(c.used) === null)) return showError('Revisa el límite y el saldo en uso');
+    if (setup.credito.some(c => parseMoney(c.limit) && parseMoney(c.used) > parseMoney(c.limit))) return showError('El saldo en uso no puede ser mayor al límite');
+    const cards = type => setup[type].map(c => ({
+      id: uid(), type, name: c.name.trim(),
+      ...(type === 'credito' && { limit: parseMoney(c.limit), startUsed: parseMoney(c.used) }),
+    }));
+    db = { name: setup.name.trim(), cards: [...cards('debito'), ...cards('credito')], debts: [], goals: [], expenses: [] };
     save();
     render();
     enter();
     toast(`¡Listo, ${db.name}!`);
   },
   new: () => {
-    draft = { step: 0, amountText: '', category: '', detail: '', custom: false, method: null, cardId: null };
+    draft = { step: 0, amountText: '', category: '', detail: '', custom: false, method: null, cardId: null, ...NO_DEBT };
     render();
     enter([...$app.querySelectorAll('.step > *')], 40);
     $app.querySelector('input').focus(); // same tap, so iOS opens the keyboard
@@ -405,8 +675,21 @@ const actions = {
   next: () => {
     if (draft.step === 0 && !parseAmount(draft.amountText)) return showError('Escribe una cantidad mayor a 0');
     if (draft.step === 1 && !draft.category.trim()) return showError('Elige una categoría o escribe otra');
+    if (draft.step === 1 && isDebt()) {
+      if (!draft.debtKind) return showError('Elige si pagas una tarjeta de crédito u otra deuda');
+      if (!draft.debtId) return showError(draft.debtKind === 'card' ? 'Elige la tarjeta que pagas' : 'Elige la deuda o crea una nueva');
+      if (draft.debtId === 'new' && !draft.newDebtName.trim()) return showError('Escribe el nombre de la deuda');
+      if (draft.debtId === 'new' && !parseAmount(draft.newDebtTotal)) return showError('Escribe cuánto debes en total');
+      const owed = debtOwed();
+      if (!owed) return showError('No hay deuda por pagar');
+      if (parseAmount(draft.amountText) > owed) return showError(`No puedes pagar más de lo que debes (${money(owed)})`);
+    }
     if (draft.step < 2) {
       draft.step++;
+      if (draft.step === 2 && payingCard() && draft.method !== 'debito') {
+        const debit = cardsOf('debito');
+        Object.assign(draft, { method: 'debito', cardId: debit.length === 1 ? debit[0].id : null });
+      }
       render();
       enter([...$app.querySelectorAll('.step > *')], 40);
       return animate($app.querySelectorAll('.progress i')[draft.step], [{ transform: 'scaleX(0)' }, { transform: 'none' }], { duration: 400 });
@@ -414,26 +697,67 @@ const actions = {
     if (!draft.method) return showError('Elige cómo pagaste');
     const card = db.cards.find(c => c.id === draft.cardId);
     if (draft.method !== 'efectivo' && !card) return showError('Elige una tarjeta');
+    if (payingCard() && card?.type !== 'debito') return showError('Las tarjetas de crédito solo se pagan con débito');
+    if (overLimit() > 0) return showError(`Supera tu disponible de ${money(available(card))}. Si tu saldo cambió, actualízalo en Perfil`);
+    let target = null; // card or debt being paid
+    if (isDebt()) {
+      target = draft.debtId === 'new'
+        ? { id: uid(), name: draft.newDebtName.trim(), total: parseAmount(draft.newDebtTotal) }
+        : db.cards.find(c => c.id === draft.debtId) ?? db.debts.find(d => d.id === draft.debtId);
+      if (draft.debtId === 'new') db.debts.push(target);
+    }
     const expense = {
       id: uid(), amount: parseAmount(draft.amountText), category: draft.category.trim(),
       ...(hasDetail() && { detail: draft.detail.trim() || 'General' }),
+      ...(target && { detail: target.name, debtId: target.id }),
       method: draft.method, cardId: card?.id, cardName: card?.name, date: Date.now(),
     };
     db.expenses.push(expense);
     save();
     draft = null;
     render();
-    celebrate(expense);
+    const lines = [];
+    if (card?.type === 'credito' && card.limit) lines.push(`Disponible en ${card.name}: ${money(available(card))}`);
+    if (target) {
+      const left = target.type ? cardUsed(target, db.expenses) : debtLeft(target, db.expenses);
+      lines.push(left <= 0 ? `🎉 ¡Liquidaste ${target.name}!` : `Te quedan ${money(left)} por pagar de ${target.name}`);
+    }
+    celebrate('¡Gasto registrado!', `${money(expense.amount)} · ${catLabel(expense)} · ${payLabel(expense)}`, lines);
   },
   cat: ({ v }) => {
     if (!v && draft.custom) return $app.querySelector('[data-input=cat-other]').focus();
-    if (v !== draft.category) draft.detail = ''; // a detail typed for another category doesn't apply
+    // Whatever was typed or picked for another category doesn't apply
+    if (v !== draft.category) Object.assign(draft, { detail: '', ...NO_DEBT });
     draft.custom = !v;
     draft.category = v;
     render();
     pop($app.querySelector('.choice.sel'));
     enter([...$app.querySelectorAll('.choices ~ *')]);
     $app.querySelector('[data-input=cat-other]')?.focus(); // "Otro" needs text; the detail is optional, so no keyboard for it
+    $app.querySelector('.debt-picker')?.scrollIntoView({ behavior: motion ? 'smooth' : 'auto', block: 'nearest' });
+  },
+  'debt-kind': ({ v }) => {
+    const cards = cardsOf('credito').filter(c => owedOnCard(c) > 0); // only cards with something to pay
+    draft.debtKind = v;
+    draft.debtId = v === 'card' && cards.length === 1 ? cards[0].id : null;
+    render();
+    pop($app.querySelector('.debt-picker .segmented .sel'));
+    enter([...$app.querySelectorAll('.debt-picker .segmented ~ *')]);
+  },
+  debt: ({ v }) => {
+    draft.debtId = v;
+    render();
+    pop($app.querySelector('.debt-picker .bank-card.sel, .debt-picker .choice.sel'));
+    if (v !== 'new') return;
+    const fields = [...$app.querySelectorAll('[data-input^="debt-"]')];
+    enter(fields);
+    fields[0].focus();
+  },
+  liquidar: () => {
+    const owed = debtOwed();
+    draft.amountText = String(owed / 100);
+    render();
+    toast(`Pago ajustado a ${money(owed)}`);
   },
   method: ({ v }) => {
     const cards = cardsOf(v);
@@ -469,25 +793,30 @@ const actions = {
     render();
     toast('Gasto eliminado');
   },
-  'add-card': ({ v }) => {
-    const name = prompt(`Identificador de la nueva tarjeta de ${METHODS[v].label.toLowerCase()}`)?.trim();
-    if (!name) return;
-    const card = { id: uid(), type: v, name };
-    db.cards.push(card);
+  'add-card': ({ v }) => editCard(null, v),
+  'edit-card': ({ v }) => { const card = db.cards.find(c => c.id === v); editCard(card, card.type); },
+  'add-goal': () => editGoal(null),
+  'edit-goal': ({ v }) => editGoal(db.goals.find(g => g.id === v)),
+  'save-goal': ({ v }) => addToGoal(db.goals.find(g => g.id === v)),
+  'del-goal': async ({ v }) => {
+    const goal = db.goals.find(g => g.id === v);
+    if (!confirm(`¿Eliminar la meta ${goal.name}?`)) return;
+    db.goals = db.goals.filter(g => g !== goal);
     save();
+    await leave(byV(v).closest('.goal'));
     render();
-    pop(byV(card.id));
-    toast('Tarjeta agregada');
+    toast('Meta eliminada');
   },
-  'rename-card': ({ v }) => {
-    const card = db.cards.find(c => c.id === v);
-    const name = prompt('Nuevo identificador de la tarjeta', card.name)?.trim();
-    if (!name || name === card.name) return;
-    card.name = name;
+  'add-debt': () => editDebt(null),
+  'edit-debt': ({ v }) => editDebt(db.debts.find(d => d.id === v)),
+  'del-debt': async ({ v }) => {
+    const debt = db.debts.find(d => d.id === v);
+    if (!confirm(`¿Eliminar la deuda ${debt.name}? Los pagos que registraste se conservan.`)) return;
+    db.debts = db.debts.filter(d => d !== debt);
     save();
+    await leave(byV(v).closest('.debt-row'));
     render();
-    pop(byV(v));
-    toast('Tarjeta actualizada');
+    toast('Deuda eliminada');
   },
   'del-card': async ({ v }) => {
     const card = db.cards.find(c => c.id === v);
@@ -520,10 +849,15 @@ const actions = {
 
 const inputs = {
   'setup-name': v => { setup.name = v; },
-  'setup-card': (v, { type, i }) => { setup[type][i] = v; },
+  'setup-card': (v, { type, i, f }) => { setup[type][i][f] = v; },
   amount: v => { draft.amountText = v; },
   'cat-other': v => { draft.category = v; },
   detail: v => { draft.detail = v; },
+  'debt-name': v => { draft.newDebtName = v; },
+  'debt-total': v => {
+    draft.newDebtTotal = v;
+    $app.querySelector('.debt-note').innerHTML = debtNote();
+  },
 };
 
 const changes = {
@@ -544,7 +878,7 @@ const changes = {
     try { data = JSON.parse(await file.text()); } catch {}
     if (!validBackup(data)) return toast('Ese archivo no es un respaldo válido', 'error');
     if (!confirm(`Tus datos actuales se reemplazarán por el respaldo (${data.expenses.length} gastos). ¿Continuar?`)) return;
-    db = data;
+    db = upgrade(data);
     save();
     render();
     enter();
@@ -556,6 +890,12 @@ document.addEventListener('click', e => {
   const el = e.target.closest('[data-act]');
   if (el) actions[el.dataset.act](el.dataset, el);
 });
+// Every money field (inputmode=decimal) only takes numbers with up to 2 decimals, even when pasting.
+// Capture phase, so every other input handler (including a sheet's live preview) sees the clean value.
+document.addEventListener('input', e => {
+  const el = e.target;
+  if (el.inputMode === 'decimal' && cleanMoney(el.value) !== el.value) el.value = cleanMoney(el.value);
+}, true);
 document.addEventListener('input', e => inputs[e.target.dataset.input]?.(e.target.value, e.target.dataset));
 document.addEventListener('change', e => changes[e.target.dataset.change]?.(e.target));
 

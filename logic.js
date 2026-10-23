@@ -1,9 +1,44 @@
 // Pure helpers (no DOM) so they can be tested with `npm test`.
 
-// "150", "12.5" or "12,5" -> cents (integer) to avoid float rounding in sums; null if not a positive number.
-export function parseAmount(text) {
-  const n = Number(String(text).trim().replace(',', '.'));
-  return n > 0 && Number.isFinite(n) ? Math.round(n * 100) : null;
+// "150", "12.5" or "12,5" -> cents (integer) to avoid float rounding in sums. Empty -> 0, invalid or negative -> null.
+export function parseMoney(text) {
+  const n = Number(String(text ?? '').trim().replace(',', '.'));
+  return n >= 0 && Number.isFinite(n) ? Math.round(n * 100) : null;
+}
+
+// What a money field may contain while typing: digits and one decimal point with up to 2 decimals ("12,5" -> "12.5").
+export function cleanMoney(text) {
+  const [int, ...rest] = String(text).replace(/[^\d.,]/g, '').split(/[.,]/);
+  return rest.length ? `${int}.${rest.join('').slice(0, 2)}` : int;
+}
+
+// An expense amount: like parseMoney but must be > 0.
+export const parseAmount = text => parseMoney(text) || null;
+
+// Balances are derived from the expenses, so deleting an expense undoes its effect.
+// `since` (ms) is when the balance was last typed in by hand: older expenses are already part of it.
+// A balance never goes below 0: a payment bigger than what's owed (left behind by deleting the
+// purchase it paid, or saved before payments were capped) just clears the debt.
+const byDate = list => [...list].sort((a, b) => a.date - b.date);
+
+// Credit in use on a card: typed balance + purchases with it − payments to it.
+export function cardUsed(card, expenses) {
+  let used = card.startUsed ?? 0;
+  for (const e of byDate(expenses)) {
+    if (e.date < (card.since ?? 0)) continue;
+    if (e.method === 'credito' && e.cardId === card.id) used += e.amount;
+    if (e.debtId === card.id) used = Math.max(0, used - e.amount);
+  }
+  return used;
+}
+
+// What is still owed on a non-card debt.
+export function debtLeft(debt, expenses) {
+  let left = debt.total;
+  for (const e of byDate(expenses)) {
+    if (e.debtId === debt.id && e.date >= (debt.since ?? 0)) left = Math.max(0, left - e.amount);
+  }
+  return left;
 }
 
 // [start, end) of the day/week/month `offset` periods away from `now` (0 = current, -1 = previous).
@@ -33,6 +68,26 @@ export function timeBins(expenses, period, offset, now) {
   return bins;
 }
 
+// "2026-12-15" (from <input type="date">) as a local date; new Date(str) would read it as UTC and land a day early in Mexico.
+export function localDate(str) {
+  const [y, m, d] = str.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+// Whole days from today to `dateStr` (negative once it has passed).
+export function daysUntil(dateStr, now = new Date()) {
+  return Math.round((localDate(dateStr) - new Date(now.getFullYear(), now.getMonth(), now.getDate())) / 864e5);
+}
+
+// How a savings goal is going: what's left, days to the date and what to save per day to make it.
+// Daily rounds up to the cent so saving it every day reaches the goal; on the last day it's everything left.
+export function goalPlan(goal, now) {
+  const left = Math.max(0, goal.amount - (goal.saved ?? 0));
+  const days = daysUntil(goal.date, now);
+  const overdue = left > 0 && days < 0;
+  return { left, days, overdue, done: !left, daily: left && !overdue ? Math.ceil(left / Math.max(1, days)) : 0 };
+}
+
 // [[key, totalCents], ...] sorted from biggest to smallest.
 export function totalsBy(expenses, key) {
   const totals = new Map();
@@ -40,10 +95,18 @@ export function totalsBy(expenses, key) {
   return [...totals].sort((a, b) => b[1] - a[1]);
 }
 
+const optional = (value, check) => value === undefined || check(value);
+const isText = v => typeof v === 'string';
+
+// Older backups have no debts, card limits or expense details; those fields are optional.
 export function validBackup(d) {
-  return !!d && typeof d.name === 'string' && Array.isArray(d.cards) && Array.isArray(d.expenses)
-    && d.cards.every(c => typeof c.id === 'string' && typeof c.name === 'string' && ['debito', 'credito'].includes(c.type))
-    && d.expenses.every(e => typeof e.id === 'string' && Number.isInteger(e.amount) && typeof e.date === 'number'
-      && typeof e.category === 'string' && (e.detail === undefined || typeof e.detail === 'string')
-      && ['efectivo', 'debito', 'credito'].includes(e.method));
+  return !!d && isText(d.name) && Array.isArray(d.cards) && Array.isArray(d.expenses)
+    && d.cards.every(c => isText(c.id) && isText(c.name) && ['debito', 'credito'].includes(c.type)
+      && optional(c.limit, Number.isInteger) && optional(c.startUsed, Number.isInteger) && optional(c.since, Number.isFinite))
+    && optional(d.debts, debts => Array.isArray(debts) && debts.every(x => isText(x.id) && isText(x.name) && Number.isInteger(x.total)
+      && optional(x.since, Number.isFinite)))
+    && optional(d.goals, goals => Array.isArray(goals) && goals.every(g => isText(g.id) && isText(g.name)
+      && Number.isInteger(g.amount) && Number.isInteger(g.saved) && /^\d{4}-\d{2}-\d{2}$/.test(g.date)))
+    && d.expenses.every(e => isText(e.id) && Number.isInteger(e.amount) && typeof e.date === 'number' && isText(e.category)
+      && optional(e.detail, isText) && optional(e.debtId, isText) && ['efectivo', 'debito', 'credito'].includes(e.method));
 }
