@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@v5
       - run: npm test
       # Publish only the app files (no tests or package.json)
-      - run: mkdir _site && cp index.html app.js logic.js sw.js manifest.webmanifest icon.png _site/
+      - run: mkdir _site && cp index.html app.js logic.js icons.js sw.js manifest.webmanifest icon.png _site/
       - uses: actions/upload-pages-artifact@v4
         with:
           path: _site

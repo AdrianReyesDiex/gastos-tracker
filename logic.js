@@ -68,6 +68,20 @@ export function timeBins(expenses, period, offset, now) {
   return bins;
 }
 
+// Two different questions:
+// - "what did I spend on?" (categories, budgets): a credit card purchase counts; paying the card doesn't,
+//   the purchases made with it already counted.
+// - "how much of my income is left?": only money that actually left, so cash and debit, including paying
+//   the card; a credit card purchase doesn't touch your income until you pay the card.
+export const isSpending = e => !e.toCard;
+export const isCashOut = e => e.method !== 'credito';
+
+// A monthly budget: how much is used. Warns from 80%, "over" once spending passes it.
+export function budgetStatus(spent, budget) {
+  const pct = Math.round(spent / budget * 100);
+  return { pct, left: budget - spent, level: spent > budget ? 'over' : pct >= 80 ? 'warn' : 'ok' };
+}
+
 // "2026-12-15" (from <input type="date">) as a local date; new Date(str) would read it as UTC and land a day early in Mexico.
 export function localDate(str) {
   const [y, m, d] = str.split('-').map(Number);
@@ -86,6 +100,36 @@ export function goalPlan(goal, now) {
   const days = daysUntil(goal.date, now);
   const overdue = left > 0 && days < 0;
   return { left, days, overdue, done: !left, daily: left && !overdue ? Math.ceil(left / Math.max(1, days)) : 0 };
+}
+
+// The 25/50/75% mark a goal just passed going from `before` to `after` saved (the highest if several), or null.
+// Reaching 100% is the goal being done, not a milestone. Integer math, so 50% exactly counts.
+export function goalMilestone(before, after, amount) {
+  if (after >= amount) return null;
+  return [75, 50, 25].find(m => before * 100 < m * amount && after * 100 >= m * amount) ?? null;
+}
+
+// How last month went (the month before `now`): did spending stay within every budget, and what share of
+// the income was left? null when there's nothing to judge (no budgets or no spending; no income).
+// shortcut: budgets are the current ones (there's no budget history); keep a monthly snapshot if that matters.
+export function lastMonthResults({ expenses, incomes, budgets }, budgetKeyOf, now = new Date()) {
+  const month = { period: 'mes', offset: -1, method: 'todos' };
+  const total = list => list.reduce((sum, e) => sum + e.amount, 0);
+  const spent = filterExpenses(expenses, month, now).filter(isSpending);
+  const keys = Object.keys(budgets);
+  const underBudget = keys.length && spent.length
+    ? keys.every(k => total(spent.filter(e => budgetKeyOf(e.category) === k)) <= budgets[k]) : null;
+  const income = total(filterExpenses(incomes, month, now));
+  const out = total(filterExpenses(expenses, month, now).filter(isCashOut));
+  return { underBudget, savedPct: income ? Math.round((income - out) / income * 100) : null };
+}
+
+// Days in a row, ending today, with at least one expense
+export function streakDays(expenses, now = new Date()) {
+  const days = new Set(expenses.map(e => new Date(e.date).toDateString()));
+  let n = 0;
+  while (days.has(new Date(now.getFullYear(), now.getMonth(), now.getDate() - n).toDateString())) n++;
+  return n;
 }
 
 // [[key, totalCents], ...] sorted from biggest to smallest.
@@ -108,5 +152,10 @@ export function validBackup(d) {
     && optional(d.goals, goals => Array.isArray(goals) && goals.every(g => isText(g.id) && isText(g.name)
       && Number.isInteger(g.amount) && Number.isInteger(g.saved) && /^\d{4}-\d{2}-\d{2}$/.test(g.date)))
     && d.expenses.every(e => isText(e.id) && Number.isInteger(e.amount) && typeof e.date === 'number' && isText(e.category)
-      && optional(e.detail, isText) && optional(e.debtId, isText) && ['efectivo', 'debito', 'credito'].includes(e.method));
+      && optional(e.detail, isText) && optional(e.debtId, isText) && optional(e.toCard, v => typeof v === 'boolean')
+      && ['efectivo', 'debito', 'credito'].includes(e.method))
+    && optional(d.incomes, list => Array.isArray(list) && list.every(i => isText(i.id) && isText(i.source)
+      && Number.isInteger(i.amount) && typeof i.date === 'number'))
+    && optional(d.budgets, b => !!b && typeof b === 'object' && !Array.isArray(b) && Object.values(b).every(Number.isInteger))
+    && optional(d.lastMonthReview, v => /^\d{4}-\d{2}$/.test(v));
 }

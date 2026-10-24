@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { cleanMoney, parseMoney, parseAmount, cardUsed, debtLeft, periodRange, filterExpenses, totalsBy, timeBins, validBackup,
-  localDate, daysUntil, goalPlan } from '../logic.js';
+  localDate, daysUntil, goalPlan, goalMilestone, isSpending, isCashOut, budgetStatus, lastMonthResults, streakDays } from '../logic.js';
 
 test('parseAmount', () => {
   assert.equal(parseAmount('150'), 15000);
@@ -119,6 +119,61 @@ test('savings goals', () => {
   assert.equal(late.daily, 0, 'overdue goals are out of the daily total');
 });
 
+test('goal milestones', () => {
+  const goal = 300000;
+  assert.equal(goalMilestone(0, 75000, goal), 25);
+  assert.equal(goalMilestone(100000, 150000, goal), 50, 'exactly half counts');
+  assert.equal(goalMilestone(70000, 160000, goal), 50, '23% -> 53%');
+  assert.equal(goalMilestone(0, 240000, goal), 75, 'several at once: the highest');
+  assert.equal(goalMilestone(160000, 200000, goal), null, '53% -> 67%: none passed');
+  assert.equal(goalMilestone(200000, 300000, goal), null, 'done is not a milestone');
+  assert.equal(goalMilestone(150000, 150000, goal), null, 'nothing changed');
+});
+
+test('last month results', () => {
+  const now = new Date(2026, 10, 1, 9); // Nov 1st: reviewing October
+  const oct = (d, x) => ({ date: +new Date(2026, 9, d, 12), ...x });
+  const keyOf = c => ['Comida', 'Transporte'].includes(c) ? c : 'Otros';
+  const expenses = [
+    oct(3, { amount: 200000, category: 'Comida', method: 'efectivo' }),
+    oct(9, { amount: 50000, category: 'Transporte', method: 'credito', cardId: 'c' }),                 // on credit: not cash out yet
+    oct(20, { amount: 50000, category: 'Deuda', method: 'debito', debtId: 'c', toCard: true }),         // paying the card: cash out, not spending
+    { date: +new Date(2026, 10, 1, 8), amount: 999999, category: 'Comida', method: 'efectivo' },       // November: ignored
+  ];
+  const incomes = [oct(1, { amount: 1000000 })];
+  assert.deepEqual(lastMonthResults({ expenses, incomes, budgets: { Comida: 300000, Transporte: 50000 } }, keyOf, now), { underBudget: true, savedPct: 75 });
+  assert.equal(lastMonthResults({ expenses, incomes, budgets: { Comida: 150000 } }, keyOf, now).underBudget, false);
+  assert.equal(lastMonthResults({ expenses, incomes, budgets: {} }, keyOf, now).underBudget, null, 'no budgets');
+  assert.equal(lastMonthResults({ expenses: [], incomes: [], budgets: { Comida: 1 } }, keyOf, now).underBudget, null, 'no spending');
+  assert.equal(lastMonthResults({ expenses, incomes: [], budgets: {} }, keyOf, now).savedPct, null, 'no income');
+});
+
+test('streak of days with expenses', () => {
+  const now = new Date(2026, 9, 23, 20);
+  const on = (d, h = 12) => ({ date: +new Date(2026, 9, d, h), amount: 1 });
+  assert.equal(streakDays([on(23), on(22), on(21, 23), on(21, 1), on(19)], now), 3, '23, 22, 21; the 20th is missing');
+  assert.equal(streakDays([on(22), on(21)], now), 0, 'nothing today yet');
+  assert.equal(streakDays([on(1), on(30 - 30 + 23)], now), 1);
+  assert.equal(streakDays([], now), 0);
+});
+
+test('card payments are not spending; budgets', () => {
+  assert.equal(isSpending({ category: 'Comida' }), true);
+  assert.equal(isSpending({ category: 'Deuda', debtId: 'loan' }), true, 'paying a loan is spending');
+  assert.equal(isSpending({ category: 'Deuda', debtId: 'c1', toCard: true }), false);
+  // the user's case: income 4000, buy with credit -> income untouched until the card is paid
+  const buyOnCredit = { amount: 100000, method: 'credito', cardId: 'c1' };
+  const payTheCard = { amount: 100000, method: 'debito', debtId: 'c1', toCard: true };
+  assert.equal(isCashOut(buyOnCredit), false);
+  assert.equal(isCashOut(payTheCard), true);
+  assert.equal(isCashOut({ amount: 5000, method: 'efectivo' }), true);
+  assert.equal(isSpending(buyOnCredit) && !isSpending(payTheCard), true, 'spending counts the purchase once');
+  assert.deepEqual(budgetStatus(150000, 300000), { pct: 50, left: 150000, level: 'ok' });
+  assert.equal(budgetStatus(240000, 300000).level, 'warn', '80%');
+  assert.equal(budgetStatus(300000, 300000).level, 'warn', 'exactly the budget is not over yet');
+  assert.deepEqual(budgetStatus(330000, 300000), { pct: 110, left: -30000, level: 'over' });
+});
+
 test('validBackup', () => {
   const ok = { name: 'A', cards: [{ id: 'c', type: 'debito', name: 'BBVA' }], expenses: [{ id: 'x', amount: 100, date: 1, category: 'Comida', method: 'debito', cardId: 'c' }] };
   assert.equal(validBackup(ok), true);
@@ -134,4 +189,8 @@ test('validBackup', () => {
   assert.equal(validBackup({ ...ok, expenses: [{ ...ok.expenses[0], debtId: 7 }] }), false);
   assert.equal(validBackup({ ...ok, goals: [{ id: 'g', name: 'Viaje', amount: 500000, saved: 0, date: '2026-12-15' }] }), true);
   assert.equal(validBackup({ ...ok, goals: [{ id: 'g', name: 'Viaje', amount: 500000, saved: 0, date: '15/12/2026' }] }), false);
+  assert.equal(validBackup({ ...ok, incomes: [{ id: 'i', source: 'Quincena', amount: 800000, date: 1 }], budgets: { Comida: 300000 } }), true);
+  assert.equal(validBackup({ ...ok, incomes: [{ id: 'i', source: 'Quincena', amount: '8000', date: 1 }] }), false);
+  assert.equal(validBackup({ ...ok, budgets: { Comida: 'mucho' } }), false);
+  assert.equal(validBackup({ ...ok, expenses: [{ ...ok.expenses[0], toCard: 'yes' }] }), false);
 });

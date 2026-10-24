@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -11,7 +11,11 @@
 <link rel="apple-touch-icon" href="icon.png">
 <title>Gastos</title>
 <!-- Apply the saved light/dark choice before first paint so the background doesn't flash -->
-<script>try { document.documentElement.style.colorScheme = JSON.parse(localStorage.getItem('gastos-tema')).scheme; } catch {}</script>
+<script>try {
+  const t = JSON.parse(localStorage.getItem('gastos-tema')), sticker = t.color === 'sticker', html = document.documentElement;
+  html.style.colorScheme = sticker ? 'light' : t.scheme;
+  if (sticker) html.dataset.style = 'sticker';
+} catch {}</script>
 <style>
   /* Every color is light-dark(light, dark): `color-scheme` on <html> picks the side (needs iOS 17.5+).
      --brand, --accent and --glow come from the chosen theme in app.js. */
@@ -28,11 +32,13 @@
     --round: ui-rounded, -apple-system, system-ui, sans-serif;
     --spring: cubic-bezier(.34, 1.56, .64, 1);
   }
-  * { box-sizing: border-box; margin: 0; }
+  * { box-sizing: border-box; margin: 0; scrollbar-width: none; }
+  *::-webkit-scrollbar { display: none; } /* no visible scrollbars, the page still scrolls */
+  html { touch-action: pan-x pan-y; } /* scrolling only: no pinch or double-tap zoom */
   [hidden] { display: none !important; }
   body { min-height: 100vh; font: 17px/1.35 -apple-system, system-ui, sans-serif; color: var(--text); -webkit-tap-highlight-color: transparent;
     background: radial-gradient(120% 45% at 50% 0, color-mix(in srgb, var(--accent) 14%, transparent), transparent 70%) no-repeat, var(--bg); }
-  main { max-width: 560px; margin: auto; padding: calc(env(safe-area-inset-top) + 16px) 16px calc(env(safe-area-inset-bottom) + 120px); }
+  main { max-width: 560px; margin: auto; overflow-x: clip; /* slide-in animations never widen the page */ padding: calc(env(safe-area-inset-top) + 16px) 16px calc(env(safe-area-inset-bottom) + 120px); }
   h1 { font: 700 32px/1.15 var(--round); letter-spacing: -.01em; margin: 4px 0 18px; }
   h2 { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 26px 4px 10px; }
   button, input { font: inherit; color: inherit; background: none; border: 0; padding: 0; }
@@ -43,7 +49,9 @@
   .center { text-align: center; }
   .note { color: var(--muted); font-size: 13px; margin: 14px 4px; }
   .empty { margin-top: 48px; text-align: center; color: var(--muted); }
-  .empty span { display: block; font-size: 48px; margin-bottom: 8px; }
+  .empty .i { display: block; width: 44px; height: 44px; margin: 0 auto 10px; stroke-width: 1.5; }
+  /* Lucide icons (icons.js): inline ones follow the text size */
+  .i { flex: none; width: 1.15em; height: 1.15em; vertical-align: -.2em; }
 
   /* Buttons & inputs */
   .primary { display: block; width: 100%; margin-top: 28px; padding: 16px; border-radius: 18px; background: var(--brand); color: #fff; font-weight: 600; box-shadow: 0 10px 24px var(--glow); }
@@ -62,7 +70,7 @@
   .welcome h1 { margin: 10px 0 0; }
   .avatar { display: grid; place-items: center; width: 88px; height: 88px; border-radius: 50%; background: var(--brand); color: #fff; font: 700 38px var(--round); box-shadow: 0 10px 30px var(--glow); }
   .date { font-size: 15px; margin-top: 4px; }
-  .hero { position: relative; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; align-items: flex-start; width: 100%; aspect-ratio: 1.15; padding: 24px; border-radius: 32px; background: var(--brand); color: #fff; text-align: left; box-shadow: 0 20px 40px var(--glow); }
+  .hero { position: relative; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; align-items: flex-start; width: 100%; aspect-ratio: 1.7; padding: 24px; border-radius: 32px; background: var(--brand); color: #fff; text-align: left; box-shadow: 0 20px 40px var(--glow); }
   .hero::before, .hero::after { content: ''; position: absolute; border-radius: 50%; background: rgba(255, 255, 255, .12); }
   .hero::before { width: 280px; height: 280px; top: -90px; right: -70px; }
   .hero::after { width: 150px; height: 150px; top: 70px; right: 100px; }
@@ -87,12 +95,20 @@
   .choice.sel { border-color: var(--c); background: color-mix(in srgb, var(--c) 10%, var(--card)); }
   .choice.sel::after { content: '✓'; position: absolute; top: 10px; right: 10px; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--c); color: #fff; font-size: 13px; }
   .choice.wide { grid-column: 1 / -1; flex-direction: row; align-items: center; }
+  .bank-card.near small { align-self: flex-start; padding: 1px 6px; border-radius: 6px; background: #ff9f0a; color: #000; opacity: 1; }
+  .near-note { color: light-dark(#b45309, #fbbf24); }
+  .tile-flag { display: flex; align-items: flex-start; gap: 4px; margin-top: 6px; font-size: 12px; font-weight: 600; line-height: 1.25; }
+  .tile-flag .i { width: 14px; height: 14px; margin-top: 1px; }
+  .tile-flag.warn { color: light-dark(#b45309, #fbbf24); }
+  .tile-flag.over { color: light-dark(#d70015, #ff6961); }
+  .choice:not(.sel):has(.tile-flag.over) { border-color: color-mix(in srgb, light-dark(#d70015, #ff6961) 55%, transparent); }
   .three .choice { align-items: center; padding: 16px 6px; text-align: center; font-size: 15px; }
-  .ico { display: grid; place-items: center; flex: none; width: 44px; height: 44px; border-radius: 14px; font-size: 24px; background: color-mix(in srgb, var(--c) 18%, transparent); }
+  .ico { display: grid; place-items: center; flex: none; width: 44px; height: 44px; border-radius: 14px; background: color-mix(in srgb, var(--c) 18%, transparent); color: color-mix(in srgb, var(--c) 70%, var(--text)); }
+  .ico .i { width: 24px; height: 24px; }
 
   /* Bank cards */
-  .bank-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-  .bank-card { position: relative; overflow: hidden; display: flex; flex-direction: column; justify-content: space-between; width: 100%; aspect-ratio: 1.586; padding: 12px 14px; border-radius: 16px; background: var(--g); color: #fff; text-align: left; box-shadow: 0 6px 16px rgba(0, 0, 0, .15); }
+  .bank-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .bank-card { position: relative; overflow: hidden; display: flex; flex-direction: column; justify-content: space-between; width: 100%; aspect-ratio: 1.586; padding: 12px 14px; border-radius: 16px; background: var(--g); color: var(--ink, #fff); text-align: left; box-shadow: 0 6px 16px rgba(0, 0, 0, .15); }
   .bank-card::before { content: ''; position: absolute; width: 140%; aspect-ratio: 1; top: -70%; right: -75%; border-radius: 50%; background: rgba(255, 255, 255, .13); }
   .bank-card > span { position: relative; display: flex; flex-direction: column; min-width: 0; }
   .bank-card small { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; opacity: .85; }
@@ -104,14 +120,15 @@
   .card-wrap { position: relative; }
   .card-del { position: absolute; top: -8px; right: -8px; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--danger); color: #fff; box-shadow: 0 2px 8px rgba(0, 0, 0, .2); }
   .card-del svg { width: 14px; height: 14px; }
-  .add-card { aspect-ratio: 1.586; border-radius: 16px; border: 2px dashed color-mix(in srgb, var(--accent) 45%, transparent); color: var(--accent); font-weight: 600; }
+  .add-card { align-self: start; aspect-ratio: 1.586; border-radius: 16px; border: 2px dashed color-mix(in srgb, var(--accent) 45%, transparent); color: var(--accent); font-weight: 600; }
 
   /* Filters & lists */
   .segmented { display: flex; padding: 3px; margin-bottom: 10px; border-radius: 12px; background: var(--fill); }
   .segmented button { flex: 1; padding: 7px 2px; border-radius: 9px; font-size: 14px; font-weight: 600; color: var(--muted); }
   .segmented .sel { background: var(--seg); color: var(--text); box-shadow: 0 2px 6px rgba(0, 0, 0, .1); }
   .period-nav { display: flex; align-items: center; justify-content: space-between; margin: 4px 0 14px; font: 600 17px var(--round); }
-  .period-nav button { width: 36px; height: 36px; border-radius: 50%; background: var(--fill); color: var(--accent); font-size: 22px; line-height: 1; }
+  .period-nav button { width: 36px; height: 36px; border-radius: 50%; background: var(--fill); color: var(--accent); display: grid; place-items: center; }
+  .period-nav .i { width: 20px; height: 20px; }
   .period-nav button:disabled { opacity: .35; }
   .summary { display: flex; padding: 20px; border-radius: 24px; background: var(--brand); color: #fff; box-shadow: 0 12px 28px var(--glow); }
   .summary > div { flex: 1; }
@@ -126,6 +143,15 @@
   .tx-main b { display: block; font-weight: 600; }
   .tx-main small { display: block; color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .tx-amount { font: 600 17px var(--round); white-space: nowrap; }
+  .tx-main .tx-meta { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+  .pay-tag { display: inline-flex; align-items: center; gap: 5px; min-width: 0; padding: 2px 8px 2px 4px; border-radius: 8px; background: var(--fill); color: var(--text); font-size: 12px; font-weight: 600; }
+  .pay-tag > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pay-tag small { color: var(--muted); font-weight: 500; }
+  .pay-tag.cash { padding-left: 6px; background: color-mix(in srgb, var(--ok) 18%, transparent); }
+  .pay-tag.income { padding-left: 6px; background: color-mix(in srgb, var(--ok) 18%, transparent); }
+  .pay-arrow { color: var(--muted); }
+  .mini-card { position: relative; flex: none; width: 24px; height: 16px; border-radius: 4px; background: var(--g); box-shadow: inset 0 0 0 .5px light-dark(rgba(0, 0, 0, .2), rgba(255, 255, 255, .45)); }
+  .mini-card::after { content: ''; position: absolute; top: 5px; left: 3px; width: 6px; height: 5px; border-radius: 1.5px; background: #f0cf72; }
 
   /* Stats */
   .panel { padding: 16px 18px; }
@@ -162,7 +188,7 @@
   .name-input:focus { background: var(--fill); }
   .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   .tile { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 18px 12px; border-radius: 20px; background: var(--card); box-shadow: var(--shadow); font-weight: 600; }
-  .tile span { font-size: 28px; }
+  .tile .i { width: 28px; height: 28px; color: var(--accent); }
   .link { color: var(--accent); font-weight: 600; }
   .note .link { margin-left: 4px; }
   .warn { color: var(--danger); }
@@ -170,7 +196,7 @@
   .choice small { display: block; margin-top: 2px; font-size: 13px; font-weight: 500; color: var(--muted); }
   .setup-card + .setup-card { margin-top: 12px; }
   .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
-  .meter { display: block; height: 6px; margin-top: 6px; border-radius: 3px; background: var(--fill); overflow: hidden; }
+  .meter { position: relative; display: block; height: 6px; margin-top: 6px; border-radius: 3px; background: var(--fill); overflow: hidden; }
   .meter i { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
   .card-meta { margin: 8px 2px 0; font-size: 12px; color: var(--muted); }
   .debt-list { border-radius: 20px; background: var(--card); box-shadow: var(--shadow); overflow: hidden; }
@@ -192,6 +218,23 @@
   .goal-main > small { display: block; margin-top: 6px; }
   .goal-actions { display: flex; align-items: center; margin-top: 4px; }
   .goal-actions .icon-btn { margin-left: auto; }
+  .income-btn { display: block; width: 100%; margin-top: 12px; padding: 15px; border-radius: 18px; background: var(--card); box-shadow: var(--shadow); color: var(--accent); font-weight: 600; }
+  .month { display: flex; gap: 8px; }
+  .month > div { flex: 1; min-width: 0; }
+  .month small { display: block; font-size: 13px; color: var(--muted); }
+  .month b { font: 700 19px var(--round); white-space: nowrap; font-variant-numeric: tabular-nums; } /* digits keep their width while counting */
+  .head-row { display: flex; justify-content: space-between; align-items: center; }
+  .head-row .link { font-size: 15px; text-transform: none; letter-spacing: 0; }
+  .budget { margin: 0 -8px; padding: 10px 8px; border-radius: 10px; } /* room for the red flash */
+  .budget + .budget { border-top: .5px solid var(--sep); }
+  .budget-state { display: block; margin-top: 6px; font-size: 13px; color: var(--muted); }
+  .budget.warn .meter i { background: #ff9f0a; }
+  .budget.over .meter i { background: var(--danger); }
+  .budget.over .budget-state { color: var(--danger); }
+  .bar i.income-bar { background: var(--ok); }
+  .date-pick { display: flex; align-items: center; gap: 10px; width: fit-content; margin: 20px auto 0; padding: 6px 6px 6px 14px; border-radius: 14px; background: var(--card); box-shadow: var(--shadow); font-weight: 600; }
+  .date-pick input { padding: 6px 10px; border-radius: 10px; background: var(--fill); color: var(--accent); font-weight: 600; }
+  .sheet-delete { display: block; width: 100%; margin-top: 14px; padding: 10px; color: var(--danger); font-weight: 600; }
   .sheet-preview { margin: 12px 4px 0; font-size: 15px; }
   .sheet-preview:empty { display: none; }
   .sheet input[type=date] { min-height: 54px; text-align: left; -webkit-appearance: none; appearance: none; }
@@ -223,33 +266,111 @@
 
   /* Notifications */
   .toast { position: fixed; z-index: 40; top: calc(env(safe-area-inset-top) + 10px); left: 0; right: 0; width: fit-content; max-width: calc(100% - 32px); margin: auto; display: flex; align-items: center; gap: 10px; padding: 8px 18px 8px 8px; border-radius: 999px; background: #111; color: #fff; font-size: 15px; font-weight: 600; border: .5px solid rgba(255, 255, 255, .12); box-shadow: 0 10px 30px rgba(0, 0, 0, .25); }
-  .toast i { display: grid; place-items: center; flex: none; width: 28px; height: 28px; border-radius: 50%; background: var(--ok); font-style: normal; font-size: 15px; }
+  .toast i { display: grid; place-items: center; flex: none; width: 28px; height: 28px; border-radius: 50%; background: var(--ok); font-style: normal; }
+  .toast i .i { width: 16px; height: 16px; stroke-width: 2.5; }
+  .avatar .i { width: 40px; height: 40px; }
+  .pay-tag .i { width: 14px; height: 14px; }
   .toast.error i { background: var(--danger); }
   .success { position: fixed; inset: 0; z-index: 30; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 24px; text-align: center; background: color-mix(in srgb, var(--bg) 80%, transparent); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); animation: fade .25s; }
   .success.out { animation: fade .3s reverse forwards; }
-  .success svg { width: 110px; height: 110px; margin-bottom: 10px; fill: none; stroke: var(--ok); stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; animation: pop .5s var(--spring); }
-  .success circle { stroke-dasharray: 151; stroke-dashoffset: 151; animation: draw .5s .1s forwards; }
-  .success path { stroke-dasharray: 32; stroke-dashoffset: 32; animation: draw .3s .5s forwards; }
-  .success b { font: 700 26px var(--round); }
-  .success span { color: var(--muted); }
+  .success .check { width: 110px; height: 110px; margin-bottom: 10px; fill: none; stroke: var(--ok); stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; animation: pop .5s var(--spring); }
+  .success .check circle { stroke-dasharray: 151; stroke-dashoffset: 151; animation: draw .5s .1s forwards; }
+  .success .check path { stroke-dasharray: 32; stroke-dashoffset: 32; animation: draw .3s .5s forwards; }
+  .success > b { font: 700 26px var(--round); } /* only the title and text, not inside the art */
+  .success > span { color: var(--muted); }
+  .coin { position: fixed; z-index: 45; width: 18px; height: 18px; margin: -9px; border-radius: 50%; pointer-events: none;
+    background: radial-gradient(circle at 35% 35%, #fff4b8, #f7c948 45%, #c99a06); box-shadow: inset 0 0 0 1.5px #a87d00; }
+  .coin::after { content: "$"; display: block; font: 800 11px/18px system-ui, sans-serif; text-align: center; color: #7a5a00; }
+  .float-amount { position: fixed; z-index: 45; pointer-events: none; white-space: nowrap; font: 700 22px var(--round); color: light-dark(#1f8a47, #30d158); }
+  .sparkle { position: fixed; z-index: 45; width: 12px; height: 12px; margin: -6px; pointer-events: none; background: var(--spark, #ffc800);
+    clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%); }
+  /* A goal milestone: a light sweeps across the bar twice and it glows */
+  .meter.shine { box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 70%, transparent); }
+  .meter.shine::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .85), transparent); transform: translateX(-100%); animation: sweep .9s ease-in-out 2; }
+  @keyframes sweep { to { transform: translateX(100%); } }
+  /* Achievements */
+  .success .medal { display: grid; place-items: center; width: 120px; height: 120px; margin-bottom: 12px; border-radius: 50%; color: #6b4700;
+    background: radial-gradient(circle at 35% 30%, #fff3b0, #f7c948 45%, #c99a06); box-shadow: 0 12px 30px rgba(201, 154, 6, .45), inset 0 0 0 4px rgba(255, 255, 255, .4);
+    animation: medal-drop 1.2s cubic-bezier(.3, 1.35, .5, 1) both; }
+  .success .medal .i { width: 62px; height: 62px; }
+  @keyframes medal-drop { from { transform: translateY(-70vh) rotate(-540deg); } } /* falls spinning, bounces to rest */
+  .success .big-pct { margin-bottom: 6px; font: 800 72px var(--round); font-variant-numeric: tabular-nums; color: light-dark(#a87d00, #f7c948); }
+  .paid-card { position: relative; width: 230px; margin-bottom: 16px; perspective: 900px; }
+  .paid-card .bank-card { animation: card-flip .9s ease-out both; }
+  @keyframes card-flip { from { transform: rotateY(-200deg) scale(.7); } }
+  .stamp { position: absolute; top: 50%; left: 50%; padding: 4px 14px; border: 4px solid #e0115f; border-radius: 10px; background: rgba(255, 255, 255, .88);
+    color: #e0115f; font: 900 30px var(--round); letter-spacing: .1em; transform: translate(-50%, -50%) rotate(-14deg);
+    animation: stamp .4s .9s cubic-bezier(.2, 1.6, .4, 1) both; }
+  @keyframes stamp { from { transform: translate(-50%, -50%) rotate(-14deg) scale(3); opacity: 0; } } /* slammed on like a rubber stamp */
+  .success .flame { display: grid; place-items: center; transform-origin: 50% 90%; animation: flame-grow .9s cubic-bezier(.3, 1.6, .5, 1) both, flicker 1.4s .9s ease-in-out infinite alternate; }
+  .success .flame .i { width: 96px; height: 96px; fill: #ffb000; stroke: #ff5a00; stroke-width: 1.5; }
+  @keyframes flame-grow { from { transform: scale(0); } }
+  @keyframes flicker { to { transform: scale(1.06, .95) rotate(2deg); } }
+  .success .streak-num { margin-bottom: 4px; font: 800 44px var(--round); font-variant-numeric: tabular-nums; }
+  /* Deleting: the trash can above the tab bar and the copy that flies into it */
+  .trash-bin { position: fixed; z-index: 46; left: 0; right: 0; bottom: calc(max(12px, env(safe-area-inset-bottom) - 12px) + 84px); width: 64px; height: 64px; margin: auto;
+    border-radius: 50%; background: var(--card); color: var(--danger); box-shadow: 0 10px 30px rgba(0, 0, 0, .25); pointer-events: none; }
+  .trash-bin svg { position: absolute; inset: 0; width: 32px; height: 32px; margin: auto; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .bin-lid { transform-origin: 12.5% 25%; } /* hinge at the lid's left end (3,6 of 24) */
+  .trash-ghost { position: fixed; z-index: 45; margin: 0; border-radius: 16px; pointer-events: none; transform-origin: center; }
+  [data-style=sticker] .trash-bin { border: var(--line); box-shadow: var(--shadow); }
+  .confetti { position: fixed; inset: 0; z-index: 45; width: 100%; height: 100%; pointer-events: none; }
   @keyframes draw { to { stroke-dashoffset: 0; } }
   @keyframes pop { from { transform: scale(.5); opacity: 0; } }
   @keyframes fade { from { opacity: 0; } }
 
+  /* "Sticker" theme: cream paper, black outlines on everything, flat neon fills and a hard offset
+     shadow instead of a blur, like stickers pasted on a notebook. Black ink on every neon fill. */
+  :root[data-style=sticker] {
+    --bg: #f2f2f2; --card: #fff; --text: #000; --muted: #6e6e6e; --sep: #000; --fill: #e7e3bf; --seg: #adff02; --glass: #fff;
+    --danger: #d70015; --shadow: 3px 3px 0 #000; --line: 1.5px solid #000;
+    --pink: #fa00ff; --cyan: #02bbff; --lime: #adff02;
+    /* iOS ships Helvetica Neue Condensed Black, so no web font (works offline) */
+    --round: "HelveticaNeue-CondensedBlack", "AvenirNextCondensed-Heavy", Impact, system-ui, sans-serif;
+  }
+  [data-style=sticker] body { background: var(--bg); }
+  [data-style=sticker] h1 { font-size: 38px; line-height: .95; text-transform: uppercase; letter-spacing: -.01em; }
+  [data-style=sticker] :is(.field, .choice, .tile, .theme, .counter, .tx-list, .panel, .kpis > div, .goal, .debt-list, .summary,
+    .hero, .primary, .secondary, .segmented, .toast, .bank-card, .icon-btn, .sheet, .ico, .period-nav button, .avatar, .card-del,
+    .income-btn, .date-pick) { border: var(--line); }
+  [data-style=sticker] .income-btn { background: var(--cyan); color: #000; }
+  [data-style=sticker] .pay-tag { border: 1px solid #000; }
+  [data-style=sticker] .pay-tag.cash, [data-style=sticker] .pay-tag.income { background: var(--lime); }
+  [data-style=sticker] .mini-card { box-shadow: none; outline: 1px solid #000; }
+  [data-style=sticker] :is(.summary, .hero, .primary, .avatar) { color: #000; }
+  [data-style=sticker] .summary { background: var(--cyan); box-shadow: var(--shadow); }
+  [data-style=sticker] .hero { background: var(--pink); box-shadow: 5px 5px 0 #000; }
+  [data-style=sticker] .hero::before { background: var(--cyan); border: var(--line); }
+  [data-style=sticker] .hero::after { background: var(--lime); border: var(--line); }
+  [data-style=sticker] .hero .plus { background: #fff; border: var(--line); transform: rotate(-8deg); animation: none; }
+  [data-style=sticker] .primary { background: var(--lime); box-shadow: var(--shadow); }
+  [data-style=sticker] .avatar { background: var(--lime); box-shadow: var(--shadow); }
+  [data-style=sticker] .bank-card, [data-style=sticker] .sheet { box-shadow: var(--shadow); }
+  [data-style=sticker] .add-card { border: 1.5px dashed #000; color: #000; }
+  [data-style=sticker] :is(.choice, .theme).sel { background: var(--lime); border-color: #000; }
+  [data-style=sticker] .choice.sel::after { background: #000; color: var(--lime); }
+  [data-style=sticker] .segmented .sel { border: var(--line); box-shadow: none; }
+  [data-style=sticker] nav { border: var(--line); box-shadow: var(--shadow); -webkit-backdrop-filter: none; backdrop-filter: none; }
+  [data-style=sticker] nav button.active { background: var(--lime); color: #000; box-shadow: inset 0 0 0 1.5px #000; }
+  [data-style=sticker] .toast { background: #fff; color: #000; box-shadow: var(--shadow); }
+  [data-style=sticker] .toast i { border: var(--line); color: #000; }
+  /* Pressing a sticker pushes it into its shadow */
+  [data-style=sticker] :is(.primary, .choice, .tile, .theme, .hero, .bank-card):active { transform: translate(3px, 3px); box-shadow: none; }
+
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation: none !important; transition: none !important; }
-    .success circle, .success path { stroke-dashoffset: 0; }
+    .success .check circle, .success .check path { stroke-dashoffset: 0; }
   }
 </style>
 </head>
 <body>
 <main id="app"></main>
 <nav hidden>
-  <button data-act="tab" data-v="registrar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>Registrar</button>
-  <button data-act="tab" data-v="historial"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/></svg>Historial</button>
-  <button data-act="tab" data-v="estadisticas"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 20v-8M12 20V5M19 20v-11"/></svg>Estadísticas</button>
-  <button data-act="tab" data-v="ahorros"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></svg>Ahorros</button>
-  <button data-act="tab" data-v="perfil"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>Perfil</button>
+  <button data-act="tab" data-v="registrar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>Registrar</button>
+  <button data-act="tab" data-v="historial"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h.01"/><path d="M3 12h.01"/><path d="M3 19h.01"/><path d="M8 5h13"/><path d="M8 12h13"/><path d="M8 19h13"/></svg>Historial</button>
+  <button data-act="tab" data-v="estadisticas"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>Estadísticas</button>
+  <button data-act="tab" data-v="ahorros"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 17h3v2a1 1 0 0 0 1 1h2a1 1 0 0 0 1-1v-3a3.16 3.16 0 0 0 2-2h1a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1h-1a5 5 0 0 0-2-4V3a4 4 0 0 0-3.2 1.6l-.3.4H11a6 6 0 0 0-6 6v1a5 5 0 0 0 2 4v3a1 1 0 0 0 1 1h2a1 1 0 0 0 1-1z"/><path d="M16 10h.01"/><path d="M2 8v1a2 2 0 0 0 2 2h1"/></svg>Ahorros</button>
+  <button data-act="tab" data-v="perfil"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>Perfil</button>
 </nav>
 <script type="module" src="app.js"></script>
 </body>
