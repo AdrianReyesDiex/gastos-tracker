@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { cleanMoney, parseMoney, parseAmount, cardUsed, debtLeft, periodRange, filterExpenses, totalsBy, timeBins, validBackup,
-  localDate, daysUntil, goalPlan, goalMilestone, isSpending, isCashOut, budgetStatus, lastMonthResults, streakDays } from '../logic.js';
+  localDate, daysUntil, goalPlan, goalMilestone, isSpending, isCashOut, budgetStatus, convertBudget, goalMove, lastMonthResults, streakDays,
+  backupAge, dueFixed, cardStatement, monthKey, matches, compareTotals, toCSV, validCategoryName } from '../logic.js';
 
 test('parseAmount', () => {
   assert.equal(parseAmount('150'), 15000);
@@ -143,6 +144,8 @@ test('last month results', () => {
   const incomes = [oct(1, { amount: 1000000 })];
   assert.deepEqual(lastMonthResults({ expenses, incomes, budgets: { Comida: 300000, Transporte: 50000 } }, keyOf, now), { underBudget: true, savedPct: 75 });
   assert.equal(lastMonthResults({ expenses, incomes, budgets: { Comida: 150000 } }, keyOf, now).underBudget, false);
+  assert.equal(lastMonthResults({ expenses, incomes, budgets: { Transporte: 1 } }, keyOf, now).underBudget, true, 'a credit purchase uses no budget');
+  assert.equal(lastMonthResults({ expenses, incomes, budgets: { Otros: 40000 } }, keyOf, now).underBudget, false, 'paying the card does');
   assert.equal(lastMonthResults({ expenses, incomes, budgets: {} }, keyOf, now).underBudget, null, 'no budgets');
   assert.equal(lastMonthResults({ expenses: [], incomes: [], budgets: { Comida: 1 } }, keyOf, now).underBudget, null, 'no spending');
   assert.equal(lastMonthResults({ expenses, incomes: [], budgets: {} }, keyOf, now).savedPct, null, 'no income');
@@ -168,6 +171,13 @@ test('card payments are not spending; budgets', () => {
   assert.equal(isCashOut(payTheCard), true);
   assert.equal(isCashOut({ amount: 5000, method: 'efectivo' }), true);
   assert.equal(isSpending(buyOnCredit) && !isSpending(payTheCard), true, 'spending counts the purchase once');
+  // money into savings goals: leaves the month going in, comes back going out, but only what went in through the app
+  assert.equal(goalMove(0, 50000, 0), 50000, 'abonar $500');
+  assert.equal(goalMove(80000, 30000, 80000), -50000, 'took $500 back out');
+  assert.equal(goalMove(100000, 0, 30000), -30000, 'deleting: $700 were saved before the app, only $300 come back');
+  assert.equal(convertBudget(60000, 'semana', 'mes'), 260000, '$600 a week is $2,600 a month');
+  assert.equal(convertBudget(150000, 'mes', 'semana'), 34600, '$1,500 a month is ~$346 a week');
+  assert.equal(convertBudget(12345, 'mes', 'mes'), 12345);
   assert.deepEqual(budgetStatus(150000, 300000), { pct: 50, left: 150000, level: 'ok' });
   assert.equal(budgetStatus(240000, 300000).level, 'warn', '80%');
   assert.equal(budgetStatus(300000, 300000).level, 'warn', 'exactly the budget is not over yet');
@@ -192,5 +202,69 @@ test('validBackup', () => {
   assert.equal(validBackup({ ...ok, incomes: [{ id: 'i', source: 'Quincena', amount: 800000, date: 1 }], budgets: { Comida: 300000 } }), true);
   assert.equal(validBackup({ ...ok, incomes: [{ id: 'i', source: 'Quincena', amount: '8000', date: 1 }] }), false);
   assert.equal(validBackup({ ...ok, budgets: { Comida: 'mucho' } }), false);
+  assert.equal(validBackup({ ...ok, budgetPeriod: 'semana' }), true);
+  assert.equal(validBackup({ ...ok, budgetPeriod: 'año' }), false);
+  assert.equal(validBackup({ ...ok, goalMoves: [{ goalId: 'g', amount: -5000, date: 1 }] }), true);
+  assert.equal(validBackup({ ...ok, goalMoves: [{ goalId: 'g', amount: '50', date: 1 }] }), false);
   assert.equal(validBackup({ ...ok, expenses: [{ ...ok.expenses[0], toCard: 'yes' }] }), false);
+});
+
+test('reminders: backup, fixed expenses, credit card statement', () => {
+  const now = new Date(2026, 9, 15, 12), daysAgo = n => +now - n * 864e5;
+  assert.equal(backupAge({ expenses: [] }, +now), 0, 'nothing to lose yet');
+  assert.equal(backupAge({ lastBackup: daysAgo(3), expenses: [{ date: daysAgo(30) }] }, +now), 0);
+  assert.equal(backupAge({ lastBackup: daysAgo(8), expenses: [{ date: daysAgo(30) }] }, +now), 8);
+  assert.equal(backupAge({ expenses: [{ date: daysAgo(10) }] }, +now), 10, 'never backed up: since the first expense');
+
+  const names = list => list.map(f => f.name).join();
+  const fixed = [{ name: 'renta', day: 1 }, { name: 'netflix', day: 15 }, { name: 'gym', day: 20 }, { name: 'luz', day: 5, paidMonth: '2026-10' }];
+  assert.equal(names(dueFixed(fixed, now)), 'renta,netflix', 'its day came (today too), not paid or skipped this month');
+  assert.equal(names(dueFixed([{ name: 'fin de mes', day: 31 }], new Date(2026, 1, 28))), 'fin de mes', 'the 31st is the last day in February');
+  assert.equal(monthKey(now), '2026-10');
+
+  // cut-off on the 5th, pay by the 25th
+  const card = { id: 'c', cutDay: 5, payDay: 25 }, at = (d, h = 12) => +new Date(2026, 9, d, h);
+  const expenses = [
+    { date: at(3), amount: 100000, method: 'credito', cardId: 'c' },   // in the Oct 5 statement
+    { date: at(5, 20), amount: 20000, method: 'credito', cardId: 'c' }, // cut-off day: still in it
+    { date: at(10), amount: 50000, method: 'credito', cardId: 'c' },  // next statement
+    { date: at(12), amount: 30000, method: 'debito', debtId: 'c' },   // paid part of it
+  ];
+  const s = cardStatement(card, expenses, now);
+  assert.deepEqual([s.cut.getDate(), s.due.getMonth(), s.due.getDate(), s.toPay, s.daysLeft], [5, 9, 25, 90000, 10]);
+  const early = cardStatement(card, expenses, new Date(2026, 9, 3));
+  assert.deepEqual([early.cut.getMonth(), early.due.getMonth(), early.toPay], [8, 8, 0], 'before the cut: September\'s, nothing owed then');
+  const late = cardStatement({ id: 'c', cutDay: 20, payDay: 10 }, expenses, now);
+  assert.deepEqual([late.cut.getMonth(), late.cut.getDate(), late.due.getMonth(), late.due.getDate()], [8, 20, 9, 10], 'paid the month after the cut');
+  assert.equal(late.daysLeft, -5, 'overdue');
+  assert.equal(validBackup({ name: 'A', cards: [{ id: 'c', name: 'Oro', type: 'credito', cutDay: 32 }], expenses: [] }), false);
+  assert.equal(validBackup({ name: 'A', cards: [], expenses: [], fixed: [{ id: 'f', name: 'Netflix', amount: 21900, category: 'Servicio', method: 'debito', day: 15 }] }), true);
+});
+
+test('search, comparing periods, CSV', () => {
+  assert.equal(matches('credito oro', ['Comida', 'Crédito · Oro']), true, 'no accents or case needed, every word');
+  assert.equal(matches('uber', ['Transporte', 'Uber Eats']), true);
+  assert.equal(matches('netflix', ['Servicio', 'Luz']), false);
+  assert.equal(matches('  ', ['x']), true, 'empty query matches everything');
+
+  const rows = compareTotals([['Comida', 115000], ['Botana', 5000], ['Luz', 30000]], [['Comida', 100000], ['Transporte', 20000], ['Luz', 30000]]);
+  assert.deepEqual(rows.map(r => [r.name, r.diff, r.pct]), [['Transporte', -20000, -100], ['Comida', 15000, 15], ['Botana', 5000, null]],
+    'biggest change first, unchanged left out, new ones have no %');
+
+  assert.equal(toCSV([['Fecha', 'Detalle', 'Monto'], ['2026-10-27', 'Tacos, "los buenos"', '45.00']]),
+    '﻿Fecha,Detalle,Monto\r\n2026-10-27,"Tacos, ""los buenos""",45.00');
+  assert.equal(validBackup({ name: 'A', cards: [], expenses: [], quick: [{ id: 'q', name: 'Café', amount: 4500, category: 'Comida', method: 'efectivo' }],
+    budgetHistory: { '2026-09': { budgets: { Comida: 300000 }, period: 'mes' } } }), true);
+  assert.equal(validBackup({ name: 'A', cards: [], expenses: [], budgetHistory: { '2026-09': { budgets: { Comida: 'x' }, period: 'mes' } } }), false);
+});
+
+test('category names', () => {
+  assert.equal(validCategoryName('Ropa'), true);
+  assert.equal(validCategoryName('Café y pan 2'), true, 'accents, numbers, spaces');
+  assert.equal(validCategoryName('Súper-mercado'), true);
+  assert.equal(validCategoryName(' Ropa'), false, 'starts with a letter or number');
+  assert.equal(validCategoryName('<b>x</b>'), false, 'nothing that could become markup');
+  assert.equal(validCategoryName('Una categoría muy larga'), false, 'up to 20');
+  assert.equal(validBackup({ name: 'A', cards: [], expenses: [], categories: [{ name: 'Ropa', icon: 'shirt', c: 7 }] }), true);
+  assert.equal(validBackup({ name: 'A', cards: [], expenses: [], categories: [{ name: 'Ropa"', icon: 'shirt', c: 9 }] }), false);
 });

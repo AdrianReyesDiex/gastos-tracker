@@ -28,7 +28,8 @@
     --shadow: 0 1px 2px light-dark(rgba(20, 20, 50, .04), transparent), 0 6px 20px light-dark(rgba(20, 20, 50, .07), transparent);
     /* Chart categorical slots, validated as an adjacent (and donut wrap-around) set in both modes with the dataviz validator */
     --cat-1: light-dark(#2a78d6, #3987e5); --cat-2: light-dark(#eb6834, #d95926); --cat-3: light-dark(#1baf7a, #199e70);
-    --cat-4: light-dark(#eda100, #c98500); --cat-5: light-dark(#e87ba4, #d55181);
+    --cat-4: light-dark(#eda100, #c98500); --cat-5: light-dark(#e87ba4, #d55181); --cat-6: #008300;
+    --cat-7: light-dark(#6250d6, #9085e9); --cat-8: light-dark(#e34948, #e66767);
     --round: ui-rounded, -apple-system, system-ui, sans-serif;
     --spring: cubic-bezier(.34, 1.56, .64, 1);
   }
@@ -124,8 +125,10 @@
 
   /* Filters & lists */
   .segmented { display: flex; padding: 3px; margin-bottom: 10px; border-radius: 12px; background: var(--fill); }
-  .segmented button { flex: 1; padding: 7px 2px; border-radius: 9px; font-size: 14px; font-weight: 600; color: var(--muted); }
-  .segmented .sel { background: var(--seg); color: var(--text); box-shadow: 0 2px 6px rgba(0, 0, 0, .1); }
+  .segmented :is(button, label) { flex: 1; padding: 7px 2px; border-radius: 9px; font-size: 14px; font-weight: 600; color: var(--muted); text-align: center; }
+  .segmented :is(.sel, label:has(:checked)) { background: var(--seg); color: var(--text); box-shadow: 0 2px 6px rgba(0, 0, 0, .1); }
+  .segmented input { position: absolute; opacity: 0; pointer-events: none; } /* the label is the button */
+  .segmented label:has(:focus-visible) { outline: 2px solid var(--accent); }
   .period-nav { display: flex; align-items: center; justify-content: space-between; margin: 4px 0 14px; font: 600 17px var(--round); }
   .period-nav button { width: 36px; height: 36px; border-radius: 50%; background: var(--fill); color: var(--accent); display: grid; place-items: center; }
   .period-nav .i { width: 20px; height: 20px; }
@@ -225,12 +228,104 @@
   .month b { font: 700 19px var(--round); white-space: nowrap; font-variant-numeric: tabular-nums; } /* digits keep their width while counting */
   .head-row { display: flex; justify-content: space-between; align-items: center; }
   .head-row .link { font-size: 15px; text-transform: none; letter-spacing: 0; }
-  .budget { margin: 0 -8px; padding: 10px 8px; border-radius: 10px; } /* room for the red flash */
-  .budget + .budget { border-top: .5px solid var(--sep); }
-  .budget-state { display: block; margin-top: 6px; font-size: 13px; color: var(--muted); }
+  /* Lock screen: over everything (confirmations and confetti included) until the PIN or Face ID is right */
+  .lock { position: fixed; inset: 0; z-index: 100; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
+    padding: env(safe-area-inset-top) 24px env(safe-area-inset-bottom); background: var(--bg); }
+  .lock-title { font: 600 20px var(--round); }
+  .pin-dots { display: flex; gap: 18px; margin-bottom: 12px; }
+  .pin-dots i { width: 14px; height: 14px; border: 2px solid var(--text); border-radius: 50%; transition: background-color .15s; }
+  .pin-dots i.on { background: var(--text); }
+  .keypad { display: grid; grid-template-columns: repeat(3, 76px); gap: 16px 22px; }
+  .keypad button { display: grid; place-items: center; width: 76px; height: 76px; border-radius: 50%; background: var(--card); box-shadow: var(--shadow); font: 600 30px var(--round); }
+  .keypad .i { width: 28px; height: 28px; }
+  .add-debt.danger { color: var(--danger); }
+
+  /* Category editor: icon and color pickers (radio grids), the list in Perfil */
+  .sheet-label { margin: 16px 4px 8px; font-size: 13px; font-weight: 600; color: var(--muted); }
+  .pick-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+  .pick-grid.colors { grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 6px; }
+  .sheet .pick-grid label { display: grid; place-items: center; margin: 0; aspect-ratio: 1; border: 2px solid transparent; border-radius: 12px; background: var(--card); color: var(--text); cursor: pointer; }
+  .pick-grid label:has(:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--card)); }
+  .pick-grid label:has(:focus-visible) { outline: 2px solid var(--accent); }
+  .pick-grid input { position: absolute; opacity: 0; pointer-events: none; }
+  .pick-grid .i { width: 22px; height: 22px; }
+  .swatch { width: 70%; aspect-ratio: 1; border-radius: 50%; }
+  .cat-preview { display: flex; align-items: center; gap: 12px; font-weight: 600; }
+  .cat-row { display: flex; align-items: center; gap: 12px; }
+  .cat-row .ico { width: 36px; height: 36px; border-radius: 11px; }
+  .cat-row small { display: block; }
+  .cat-row:disabled { opacity: 1; cursor: default; }
+  .cat-row:disabled:active { transform: none; }
+
+  /* Quick expenses on Home: a row that scrolls sideways when there are many */
+  .quick-row { display: flex; gap: 10px; margin: 0 -16px; padding: 2px 16px 8px; overflow-x: auto; scroll-snap-type: x proximity; }
+  .quick { flex: none; display: flex; align-items: center; gap: 10px; max-width: 70%; padding: 8px 14px 8px 8px; border-radius: 16px; background: var(--card); box-shadow: var(--shadow); text-align: left; scroll-snap-align: start; }
+  .quick .ico { width: 36px; height: 36px; border-radius: 11px; }
+  .quick .ico .i { width: 20px; height: 20px; }
+  .quick > span:last-child { min-width: 0; }
+  .quick b { display: block; font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .quick small { display: block; font-size: 13px; color: var(--muted); }
+  /* Historial search; while searching, the period controls hide (it looks through every period) */
+  .search { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; padding: 0 14px; border-radius: 14px; background: var(--fill); color: var(--muted); }
+  .search input { flex: 1; min-width: 0; padding: 11px 0; color: var(--text); -webkit-appearance: none; appearance: none; }
+  .filters.searching > :not(:last-child) { display: none; }
+  .tiles.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  /* Comparison with the previous period: more spending is the warning direction; arrow + words, not color alone */
+  .compare-total { margin-bottom: 6px; }
+  .legend-row .delta { width: auto; margin-left: auto; font-size: 13px; font-weight: 600; white-space: nowrap; }
+  .delta.up { color: var(--danger); }
+  .delta.down { color: light-dark(#1f8a3b, #30d158); }
+
+  /* Reminders on Home and "Se repite cada mes" in the wizard */
+  .reminders { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; } /* long names shrink instead of widening the page */
+  .reminder { display: flex; align-items: center; gap: 12px; padding: 12px 10px 12px 12px; border: 2px solid transparent; border-radius: 18px; background: var(--card); box-shadow: var(--shadow); }
+  .reminder .ico { width: 40px; height: 40px; border-radius: 12px; }
+  .reminder .mini-card { width: 26px; height: 18px; }
+  .reminder-text { flex: 1; min-width: 0; }
+  .reminder-text b { display: block; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .reminder-text small { display: block; font-size: 13px; color: var(--muted); }
+  .reminder-go { flex: none; padding: 8px 14px; border-radius: 12px; background: var(--brand); color: #fff; font-size: 14px; font-weight: 600; }
+  .reminder .icon-btn { flex: none; color: var(--muted); }
+  .reminder.urgent { border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
+  .reminder.urgent small { color: var(--danger); }
+  .repeat { display: flex; align-items: center; gap: 14px; margin-top: 24px; padding: 14px 16px; border-radius: 18px; background: var(--card); box-shadow: var(--shadow); cursor: pointer; }
+  .repeat input { flex: none; width: 22px; height: 22px; accent-color: var(--accent); }
+  .repeat b { display: block; font-weight: 600; }
+  .repeat small { display: block; font-size: 13px; color: var(--muted); }
+
+  /* Budgets: a summary with a ring, then a tile per category in its chart color (--c) */
+  .budget-sum { display: flex; align-items: center; gap: 16px; margin-bottom: 12px; }
+  .ring { position: relative; flex: none; width: 92px; }
+  .ring svg { display: block; transform: rotate(-90deg); fill: none; stroke: var(--fill); stroke-width: 10; stroke-linecap: round; }
+  .ring .val { stroke: var(--accent); }
+  .ring b { position: absolute; inset: 0; display: grid; place-content: center; font: 700 20px var(--round); }
+  .budget-sum-main { min-width: 0; }
+  .budget-sum-main small { display: block; font-size: 13px; color: var(--muted); }
+  .budget-sum-main > b { display: block; font: 700 28px/1.15 var(--round); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .budget-chip { display: inline-flex; align-items: center; gap: 5px; margin-top: 8px; padding: 4px 10px; border-radius: 10px; background: var(--fill); font-size: 13px; font-weight: 600; }
+  .budget-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .budget { display: flex; flex-direction: column; min-width: 0; padding: 14px; border: 2px solid transparent; border-radius: 20px; background: var(--card); box-shadow: var(--shadow); text-align: left; }
+  .budget-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; }
+  .budget .ico { width: 36px; height: 36px; border-radius: 12px; }
+  .budget .ico .i { width: 20px; height: 20px; }
+  .budget-pct { padding: 2px 8px; border-radius: 8px; background: var(--fill); color: var(--muted); font-size: 12px; font-weight: 700; }
+  .budget > b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .budget > small { font-size: 12px; color: var(--muted); }
+  .budget-left { font: 700 19px var(--round); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .budget .meter { height: 8px; margin: 8px 0 6px; border-radius: 4px; }
+  .budget .meter i { background: var(--c); transform-origin: left; }
+  :is(.budget, .budget-sum).warn { color: var(--text); } /* only the bar and the chip change, not the global .warn red */
   .budget.warn .meter i { background: #ff9f0a; }
+  .budget-sum.warn .val { stroke: #ff9f0a; }
+  .budget.warn .budget-pct { background: rgba(255, 159, 10, .18); color: light-dark(#b25000, #ffb340); }
+  .budget.over { border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
   .budget.over .meter i { background: var(--danger); }
-  .budget.over .budget-state { color: var(--danger); }
+  .budget-sum.over .val { stroke: var(--danger); }
+  .budget.over .budget-pct { background: color-mix(in srgb, var(--danger) 15%, transparent); color: var(--danger); }
+  :is(.budget.over .budget-left, .budget-sum.over .budget-sum-main > b) { color: var(--danger); }
+  .budget-empty { display: flex; align-items: center; gap: 14px; width: 100%; padding: 16px; border: 2px dashed var(--sep); border-radius: 20px; background: var(--card); text-align: left; }
+  .budget-empty b { display: block; font-weight: 600; }
+  .budget-empty small { display: block; margin-top: 2px; font-size: 13px; color: var(--muted); }
   .bar i.income-bar { background: var(--ok); }
   .date-pick { display: flex; align-items: center; gap: 10px; width: fit-content; margin: 20px auto 0; padding: 6px 6px 6px 14px; border-radius: 14px; background: var(--card); box-shadow: var(--shadow); font-weight: 600; }
   .date-pick input { padding: 6px 10px; border-radius: 10px; background: var(--fill); color: var(--accent); font-weight: 600; }
@@ -246,6 +341,8 @@
   .sheet::backdrop { background: rgba(0, 0, 0, .35); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }
   .sheet h3 { margin-bottom: 4px; text-align: center; font: 700 22px var(--round); }
   .sheet label { display: block; margin: 12px 4px 0; font-size: 13px; font-weight: 600; color: var(--muted); }
+  .sheet .segmented { margin: 16px 0 4px; }
+  .sheet .segmented label { margin: 0; font-size: 14px; }
   .sheet label .field { margin-top: 6px; font-size: 17px; font-weight: 400; color: var(--text); }
   .sheet-error { min-height: 18px; margin: 10px 4px 0; font-size: 14px; color: var(--danger); }
   .sheet-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 8px; }
@@ -332,7 +429,7 @@
   [data-style=sticker] h1 { font-size: 38px; line-height: .95; text-transform: uppercase; letter-spacing: -.01em; }
   [data-style=sticker] :is(.field, .choice, .tile, .theme, .counter, .tx-list, .panel, .kpis > div, .goal, .debt-list, .summary,
     .hero, .primary, .secondary, .segmented, .toast, .bank-card, .icon-btn, .sheet, .ico, .period-nav button, .avatar, .card-del,
-    .income-btn, .date-pick) { border: var(--line); }
+    .income-btn, .date-pick, .budget, .budget-empty, .reminder, .reminder-go, .repeat, .quick, .search, .keypad button) { border: var(--line); }
   [data-style=sticker] .income-btn { background: var(--cyan); color: #000; }
   [data-style=sticker] .pay-tag { border: 1px solid #000; }
   [data-style=sticker] .pay-tag.cash, [data-style=sticker] .pay-tag.income { background: var(--lime); }
@@ -349,7 +446,7 @@
   [data-style=sticker] .add-card { border: 1.5px dashed #000; color: #000; }
   [data-style=sticker] :is(.choice, .theme).sel { background: var(--lime); border-color: #000; }
   [data-style=sticker] .choice.sel::after { background: #000; color: var(--lime); }
-  [data-style=sticker] .segmented .sel { border: var(--line); box-shadow: none; }
+  [data-style=sticker] .segmented :is(.sel, label:has(:checked)) { border: var(--line); box-shadow: none; }
   [data-style=sticker] nav { border: var(--line); box-shadow: var(--shadow); -webkit-backdrop-filter: none; backdrop-filter: none; }
   [data-style=sticker] nav button.active { background: var(--lime); color: #000; box-shadow: inset 0 0 0 1.5px #000; }
   [data-style=sticker] .toast { background: #fff; color: #000; box-shadow: var(--shadow); }
