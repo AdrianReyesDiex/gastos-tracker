@@ -1,7 +1,7 @@
 import { ICONS } from './icons.js';
 import { cleanMoney, parseMoney, parseAmount, cardUsed, debtLeft, periodRange, filterExpenses, totalsBy, timeBins, validBackup,
   localDate, daysUntil, goalPlan, goalMilestone, isSpending, isCashOut, budgetStatus, convertBudget, goalMove, lastMonthResults, streakDays,
-  backupAge, BACKUP_DAYS, dueFixed, cardStatement, monthKey, matches, compareTotals, toCSV, validCategoryName } from './logic.js';
+  backupAge, BACKUP_DAYS, dueFixed, cardStatement, monthKey, matches, compareTotals, toCSV, validCategoryName, availableBalance } from './logic.js';
 
 const KEY = 'gastos-v1';
 const THEME_KEY = 'gastos-tema';
@@ -545,22 +545,25 @@ function editGoal(goal) {
   } });
 }
 
-// Saving into a goal takes the money out of your month; taking it back out (or deleting the goal) returns it today
+// Saving into a goal takes the money out of what's available to spend; taking it back out (or deleting the goal)
+// returns it, today
 function moveToGoal(goal, before, after) {
   const amount = goalMove(before, after, sum(db.goalMoves.filter(m => m.goalId === goal.id)));
   if (amount) db.goalMoves.push({ goalId: goal.id, amount, date: Date.now() });
   return amount;
 }
 
-// A period's (default: this month) income − money that actually left it (cash, debit and card payments; not credit
-// purchases). Money put into goals left too, and what came back from them counts as income (net: in and back out
-// in the same period cancel out instead of inflating both).
+// A period's (default: this month) Ingresos and Salidas: income, and money that actually left (cash, debit and card
+// payments; not credit purchases). Money put into goals left too, and what came back from them counts as income
+// (net: in and back out in the same period cancel out instead of inflating both).
 function balance(f = { period: 'mes', offset: 0, method: 'todos' }) {
   const net = sum(filterExpenses(db.goalMoves, f)), toGoals = Math.max(0, net), fromGoals = Math.max(0, -net);
   const income = sum(filterExpenses(db.incomes, f)) + fromGoals;
   const out = sum(filterExpenses(db.expenses, f).filter(isCashOut)) + toGoals;
-  return { income, out, toGoals, fromGoals, left: income - out };
+  return { income, out, toGoals, fromGoals };
 }
+// Available to spend: the running balance, not this month's (see availableBalance)
+const spendable = () => availableBalance(db);
 // What the Salidas and Ingresos include besides expenses and incomes
 const goalsNote = ({ toGoals, fromGoals }) => (toGoals ? ` Incluye ${money(toGoals)} que apartaste para tus metas.` : '')
   + (fromGoals ? ` Ingresos incluye ${money(fromGoals)} que regresó de tus metas.` : '');
@@ -581,9 +584,8 @@ function editIncome(income) {
     save();
     render();
     if (!income) coinBurst(amount);
-    if (!income && db.incomes.length === 1) sparkleOn($app.querySelector('[data-count=left]')?.parentElement); // first income: "Te quedan" shows up
-    const { left } = balance();
-    toast(`${income ? 'Ingreso actualizado' : 'Ingreso registrado'} · este mes te quedan ${money(left)}`);
+    if (!income && db.incomes.length === 1) sparkleOn($app.querySelector('.spendable')); // first income: "Disponible para gastar" shows up
+    toast(`${income ? 'Ingreso actualizado' : 'Ingreso registrado'} · tienes ${money(spendable())} para gastar`);
   }, income ? { onDelete: () => {
     if (!confirm(`¿Eliminar el ingreso ${income.source} de ${money(income.amount)}?`)) return false;
     db.incomes = db.incomes.filter(x => x !== income);
@@ -679,8 +681,8 @@ function addToGoal(goal) {
       if (mark) goalMilestoneFx(goal);
     }
   }, { preview: v => {
-    const amount = parseAmount(v.amount), month = balance();
-    return amount && month.income ? `${icon('wallet')} Sale de lo que te queda este mes: te quedarán <b>${money(month.left - amount)}</b>` : '';
+    const amount = parseAmount(v.amount);
+    return amount ? `${icon('wallet')} Sale de tu disponible para gastar: te quedarán <b>${money(spendable() - amount)}</b>` : '';
   } });
 }
 
@@ -874,7 +876,7 @@ function viewRegistrar() {
 }
 
 function viewHome() {
-  const month = balance(), { income, out, left } = month;
+  const month = balance(), { income, out } = month, free = spendable();
   const owedOnCards = cardsOf('credito').reduce((total, c) => total + cardUsed(c, db.expenses), 0);
   return `
     <p class="muted date">${fmtDate(Date.now(), { weekday: 'long', day: 'numeric', month: 'long' })}</p>
@@ -891,16 +893,21 @@ function viewHome() {
           <span class="ico">${icon(catOf(q.category).icon)}</span><span><b>${esc(q.name)}</b><small>${money(q.amount)}</small></span>
         </button>`).join('')}</div>` : ''}
     <button class="income-btn" data-act="add-income">${icon('coins')} Registrar ingreso</button>
+    ${db.incomes.length ? `
+      <div class="panel spendable">
+        <small>${free < 0 ? 'Gastaste de más' : 'Disponible para gastar'}</small>
+        <b class="${free < 0 ? 'warn' : ''}" data-count="free" data-value="${Math.abs(free)}">${money(Math.abs(free))}</b>
+        <small>Todo lo que ha entrado menos lo que ha salido. No se reinicia cada mes.</small>
+      </div>` : ''}
     ${viewReminders()}
     <h2>${fmtDate(Date.now(), { month: 'long' })}</h2>
     <div class="panel month">
       <div><small>Ingresos</small><b data-count="income" data-value="${income}">${money(income)}</b></div>
       <div><small>Salidas</small><b data-count="out" data-value="${out}">${money(out)}</b></div>
-      ${income ? `<div><small>${left < 0 ? 'Te pasaste por' : 'Te quedan'}</small><b class="${left < 0 ? 'warn' : ''}" data-count="left" data-value="${Math.abs(left)}">${money(Math.abs(left))}</b></div>` : ''}
     </div>
-    <p class="note">${income ? `Salidas: lo que pagaste en efectivo o débito, incluido el pago de tus tarjetas. Las compras con crédito se descuentan cuando pagas la tarjeta.${goalsNote(month)}`
-      : 'Registra tus ingresos para ver cuánto te queda en el mes.'}</p>
-    ${owedOnCards ? `<p class="note">${icon('credit-card')} En tus tarjetas de crédito debes <b>${money(owedOnCards)}</b>; se descontará de tus ingresos y presupuestos cuando las pagues.</p>` : ''}
+    <p class="note">${db.incomes.length ? `Solo de este mes. Salidas: lo que pagaste en efectivo o débito, incluido el pago de tus tarjetas. Las compras con crédito se descuentan cuando pagas la tarjeta.${goalsNote(month)}`
+      : 'Registra tus ingresos para ver cuánto tienes disponible para gastar.'}</p>
+    ${owedOnCards ? `<p class="note">${icon('credit-card')} En tus tarjetas de crédito debes <b>${money(owedOnCards)}</b>; se descontará de tu disponible y de tus presupuestos cuando las pagues.</p>` : ''}
     ${viewBudgets()}`;
 }
 
@@ -1181,22 +1188,79 @@ function viewCompare(list, total) {
     </div>`;
 }
 
-// Income vs. spending of the period, as two bars on the same scale
+// Income vs. spending of the period, as two bars on the same scale. Tapping a bar lists what makes it up.
 function viewBalance(b) {
   const { income, out } = b, max = Math.max(income, out), diff = income - out;
-  const bar = (label, cents, cls = '') => `
-    <div class="bar-row">
-      <p class="bar-label"><span>${label}</span><small>${money(cents)}</small></p>
-      <div class="bar"><i class="${cls}" style="width:${cents / max * 100}%"></i></div>
-    </div>`;
+  const bar = (label, cents, rows, cls = '') => `
+    <button class="bar-row flow-toggle" data-act="flow" aria-expanded="false">
+      <span class="bar-label"><span>${label}<span class="chev">${icon('chevron-right')}</span></span><small>${money(cents)}</small></span>
+      <span class="bar"><i class="${cls}" style="width:${cents / max * 100}%"></i></span>
+    </button>
+    <div class="flow-detail" hidden>${rows.map(r => `
+      <div class="flow-row">
+        <span class="ico" style="--c:${r.color}">${icon(r.icon)}</span>
+        <span class="flow-name"><b>${esc(r.name)}</b><small>${esc(r.note)}</small></span>
+        <b>${money(r.cents)}</b>
+      </div>`).join('')}</div>`;
   return `
     <h2>Ingresos y salidas</h2>
     <div class="panel">
-      ${bar(`${icon('coins')} Ingresos`, income, 'income-bar')}${bar(`${icon('receipt')} Salidas`, out)}
-      <p class="note">${diff >= 0 ? `Te quedaron ${money(diff)}: el ${Math.round(diff / income * 100)}% de lo que ingresó`
-        : `<span class="warn">Salieron ${money(-diff)} más de lo que ingresó</span>`}
-        Las compras con crédito cuentan hasta que pagas la tarjeta.${goalsNote(b)}</p>
+      ${bar(`${icon('coins')} Ingresos`, income, flowRows('in', b), 'income-bar')}${bar(`${icon('receipt')} Salidas`, out, flowRows('out', b))}
+      <p class="note">${diff >= 0 ? `Te quedaron ${money(diff)}: el ${Math.round(diff / income * 100)}% de lo que ingresó.`
+        : `<span class="warn">Salieron ${money(-diff)} más de lo que ingresó.</span>`}
+        Las compras con crédito cuentan hasta que pagas la tarjeta.${goalsNote(b)} Toca Ingresos o Salidas para ver el detalle.</p>
     </div>`;
+}
+
+// Savings goals in the period: what went into them (net), and how each one is going overall, with what it got in
+// the period on the right. Deleted goals show only if money moved in the period (it came back to the available money).
+function viewGoalStats() {
+  const moves = filterExpenses(db.goalMoves, filter);
+  if (!db.goals.length && !moves.length) return '';
+  const net = sum(moves), income = sum(filterExpenses(db.incomes, filter));
+  const saved = db.goals.reduce((total, g) => total + g.saved, 0), target = db.goals.reduce((total, g) => total + g.amount, 0);
+  const inPeriod = id => sum(moves.filter(m => m.goalId === id));
+  const signed = cents => cents ? `<b class="${cents > 0 ? '' : 'muted'}">${cents > 0 ? '+' : '−'}${money(Math.abs(cents))}</b>` : '';
+  const row = (name, note, iconName, cents, meterHtml = '') => `
+    <div class="goal-stat">
+      <div class="flow-row">
+        <span class="ico" style="--c:var(--accent)">${icon(iconName)}</span>
+        <span class="flow-name"><b>${esc(name)}</b><small>${note}</small></span>${signed(cents)}
+      </div>${meterHtml}
+    </div>`;
+  const goals = db.goals.map(g => ({ g, ...goalPlan(g) })).sort((a, b) => a.done - b.done || a.g.date.localeCompare(b.g.date));
+  const gone = [...new Set(moves.map(m => m.goalId))].filter(id => !db.goals.some(g => g.id === id) && inPeriod(id));
+  return `
+    <h2>Ahorros y metas</h2>
+    <div class="kpis">
+      <div><small>${net < 0 ? 'Sacaste de tus metas' : 'Apartado en el periodo'}</small><b>${money(Math.abs(net))}</b></div>
+      <div><small>Total en tus metas</small><b>${money(saved)}</b></div>
+    </div>
+    ${goals.length || gone.length ? `
+      <div class="panel goal-stats">
+        ${goals.map(({ g, done }) => row(g.name, done ? '¡Meta cumplida!' : `Llevas ${money(g.saved)} de ${money(g.amount)} · ${Math.floor(g.saved / g.amount * 100)}%`,
+          done ? 'trophy' : 'target', inPeriod(g.id), meter(g.saved, g.amount))).join('')}
+        ${gone.map(id => row('Meta eliminada', 'Su dinero regresó a tu disponible', 'target', inPeriod(id))).join('')}
+      </div>` : ''}
+    <p class="note">${income && net > 0 ? `Apartaste el ${Math.round(net / income * 100)}% de lo que ingresó en el periodo. ` : ''}${target ? `Entre todas tus metas llevas ${money(saved)} de ${money(target)}. ` : ''}A la derecha, lo que le aportaste a cada una en el periodo.</p>`;
+}
+
+// What makes up the period's Ingresos ('in': each income by name) or Salidas ('out': by category, each card or debt
+// paid on its own line), plus the net money into or back from savings goals, biggest first
+function flowRows(kind, { toGoals, fromGoals }) {
+  const goals = [...new Set(filterExpenses(db.goalMoves, filter).map(m => db.goals.find(g => g.id === m.goalId)?.name ?? 'una meta eliminada'))].join(', ');
+  const goalRow = (name, cents) => ({ name, cents, note: goals, icon: 'piggy-bank', color: 'var(--accent)' });
+  if (kind === 'in') return [
+    ...filterExpenses(db.incomes, filter).map(i => ({ name: i.source, cents: i.amount, note: fmtDate(i.date, { day: 'numeric', month: 'long' }), icon: 'coins', color: 'var(--ok)' })),
+    ...(fromGoals ? [goalRow('Regresó de tus metas', fromGoals)] : []),
+  ].sort((a, b) => b.cents - a.cents);
+  const groups = Map.groupBy(filterExpenses(db.expenses, filter).filter(isCashOut),
+    e => e.toCard ? `Pago de tarjeta ${e.detail}` : e.category === 'Deuda' ? `Pago de ${e.detail}` : e.category);
+  return [
+    ...[...groups].map(([name, list]) => ({ name, cents: sum(list), note: list.length === 1 ? '1 movimiento' : `${list.length} movimientos`,
+      icon: catOf(list[0].category).icon, color: `var(--cat-${catOf(list[0].category).c})` })),
+    ...(toGoals ? [goalRow('Aportes a tus metas', toGoals)] : []),
+  ].sort((a, b) => b.cents - a.cents);
 }
 
 function viewEstadisticas() {
@@ -1219,6 +1283,7 @@ function viewEstadisticas() {
     ${viewFilters()}
     ${summary(list)}
     ${flow?.income ? viewBalance(flow) : ''}
+    ${filter.method === 'todos' ? viewGoalStats() : ''}
     ${list.length ? `
       <div class="kpis">
         <div><small>Promedio por gasto</small><b>${money(Math.round(total / list.length))}</b></div>
@@ -1302,7 +1367,7 @@ function viewAhorros() {
     ${plans.length ? `<h2>Tus metas</h2>${plans.map(card).join('')}` : `<p class="empty">${icon('target')}Aún no tienes metas de ahorro</p>`}
     <button class="primary" data-act="add-goal">+ Nueva meta</button>
     ${plans.length ? '<p class="note center">Toca una meta para editarla</p>' : ''}
-    <p class="note center">Lo que ahorras en tus metas sale de lo que te queda en el mes. Si eliminas una meta, regresa.</p>`;
+    <p class="note center">Lo que ahorras en tus metas sale de tu disponible para gastar. Si eliminas una meta, regresa.</p>`;
 }
 
 function viewPerfil() {
@@ -1467,28 +1532,34 @@ document.addEventListener('visibilitychange', () => {
 
 // ---------- Actions ----------
 
-// iOS share sheet (save to Files/iCloud Drive, open in Excel, send it anywhere), or a download elsewhere.
-// Resolves true once the file is out, false if cancelled or it failed.
+// On the iPhone, the share sheet (save to Files or iCloud Drive, open in Excel, AirDrop…); on a computer, a download:
+// Windows' share dialog refuses .json files even though the browser says it can share them. If the share sheet fails
+// anyway, the file downloads instead and the toast says why, so it can be tracked down.
+// Resolves to how it went out, for the toast ('exportado', 'descargado…'), or null if it was cancelled.
 function shareFile(file) {
-  if (navigator.canShare?.({ files: [file] })) {
-    return navigator.share({ files: [file] }).then(() => true, err => {
-      if (err.name !== 'AbortError') toast('No se pudo exportar', 'error');
-      return false;
-    });
+  const download = () => {
+    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(file), download: file.name });
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 60e3); // the iPhone's download prompt reads it later
+  };
+  if (!matchMedia('(pointer: coarse)').matches || !navigator.canShare?.({ files: [file] })) {
+    download();
+    return Promise.resolve('descargado');
   }
-  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(file), download: file.name });
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-  return Promise.resolve(true);
+  return navigator.share({ files: [file] }).then(() => 'exportado', err => {
+    if (err.name === 'AbortError') return null; // closed the share sheet
+    download();
+    return `descargado (no se pudo compartir: ${err.name}); búscalo en Archivos › Descargas`;
+  });
 }
 
 function exportBackup() {
-  shareFile(new File([JSON.stringify(db)], `gastos-${today()}.json`, { type: 'application/json' })).then(ok => {
-    if (!ok) return;
+  shareFile(new File([JSON.stringify(db)], `gastos-${today()}.json`, { type: 'application/json' })).then(how => {
+    if (!how) return;
     db.lastBackup = Date.now(); // the reminder on Home waits another week
     save();
     render();
-    toast('Respaldo exportado');
+    toast(`Respaldo ${how}`);
   });
 }
 
@@ -1499,7 +1570,7 @@ function exportCSV() {
     e.method === 'efectivo' ? '' : db.cards.find(c => c.id === e.cardId)?.name ?? e.cardName, isSpending(e) ? '' : 'Pago de tarjeta (no suma al gasto)',
   ]);
   const csv = toCSV([['Fecha', 'Hora', 'Categoría', 'Detalle', 'Monto', 'Forma de pago', 'Tarjeta', 'Nota'], ...rows]);
-  shareFile(new File([csv], `gastos-${today()}.csv`, { type: 'text/csv' })).then(ok => ok && toast('Gastos exportados'));
+  shareFile(new File([csv], `gastos-${today()}.csv`, { type: 'text/csv' })).then(how => how && toast(`Excel ${how}`));
 }
 
 const byV = v => $app.querySelector(`[data-v="${CSS.escape(v)}"]`);
@@ -1588,6 +1659,13 @@ const actions = {
   'add-category': () => editCategory(null),
   'edit-category': ({ v }) => editCategory(db.categories.find(c => c.name === v)),
   'export-csv': exportCSV,
+  // Ingresos / Salidas in Estadísticas: open or close the list under the bar
+  flow: (_, el) => {
+    const open = el.getAttribute('aria-expanded') !== 'true', list = el.nextElementSibling;
+    el.setAttribute('aria-expanded', open);
+    list.hidden = !open;
+    if (open) [...list.children].forEach((row, i) => animate(row, [{ opacity: 0, transform: 'translateY(-6px)' }, {}], { delay: i * 30 }));
+  },
   'pin-key': async ({ v }) => {
     pinTyped = v === 'del' ? pinTyped.slice(0, -1) : (pinTyped + v).slice(0, 4);
     const dots = document.querySelectorAll('.pin-dots i');
@@ -1808,13 +1886,13 @@ const actions = {
   'del-goal': async ({ v }) => {
     const goal = db.goals.find(g => g.id === v);
     const back = -goalMove(goal.saved, 0, sum(db.goalMoves.filter(m => m.goalId === goal.id)));
-    if (!confirm(`¿Eliminar la meta ${goal.name}?${back ? ` Los ${money(back)} que le aportaste regresan a lo que te queda este mes.` : ''}`)) return;
+    if (!confirm(`¿Eliminar la meta ${goal.name}?${back ? ` Los ${money(back)} que le aportaste regresan a tu disponible para gastar.` : ''}`)) return;
     moveToGoal(goal, goal.saved, 0);
     db.goals = db.goals.filter(g => g !== goal);
     save();
     await trashFx(byV(v).closest('.goal'));
     render();
-    toast(back ? `Meta eliminada · regresaron ${money(back)} a tu mes` : 'Meta eliminada');
+    toast(back ? `Meta eliminada · regresaron ${money(back)} a tu disponible` : 'Meta eliminada');
   },
   'add-debt': () => editDebt(null),
   'edit-debt': ({ v }) => editDebt(db.debts.find(d => d.id === v)),

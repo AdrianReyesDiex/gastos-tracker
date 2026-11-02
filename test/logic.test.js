@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { cleanMoney, parseMoney, parseAmount, cardUsed, debtLeft, periodRange, filterExpenses, totalsBy, timeBins, validBackup,
   localDate, daysUntil, goalPlan, goalMilestone, isSpending, isCashOut, budgetStatus, convertBudget, goalMove, lastMonthResults, streakDays,
-  backupAge, dueFixed, cardStatement, monthKey, matches, compareTotals, toCSV, validCategoryName } from '../logic.js';
+  backupAge, dueFixed, cardStatement, monthKey, matches, compareTotals, toCSV, validCategoryName, availableBalance } from '../logic.js';
 
 test('parseAmount', () => {
   assert.equal(parseAmount('150'), 15000);
@@ -267,4 +267,18 @@ test('category names', () => {
   assert.equal(validCategoryName('Una categoría muy larga'), false, 'up to 20');
   assert.equal(validBackup({ name: 'A', cards: [], expenses: [], categories: [{ name: 'Ropa', icon: 'shirt', c: 7 }] }), true);
   assert.equal(validBackup({ name: 'A', cards: [], expenses: [], categories: [{ name: 'Ropa"', icon: 'shirt', c: 9 }] }), false);
+});
+
+test('available to spend never resets', () => {
+  const oct = d => +new Date(2026, 9, d), nov = d => +new Date(2026, 10, d);
+  const data = {
+    incomes: [{ amount: 450000, date: oct(24) }],
+    expenses: [
+      { amount: 50000, method: 'efectivo', date: oct(25) },
+      { amount: 30000, method: 'credito', cardId: 'c', date: oct(26) },              // on credit: not until the card is paid
+      { amount: 10000, method: 'debito', debtId: 'c', toCard: true, date: nov(1) },  // paying part of the card
+    ],
+    goalMoves: [{ goalId: 'g', amount: 40000, date: oct(27) }, { goalId: 'g', amount: -15000, date: nov(2) }], // saved, took some back
+  };
+  assert.equal(availableBalance(data), 450000 - 50000 - 10000 - 40000 + 15000, 'October\'s income still counts in November');
 });

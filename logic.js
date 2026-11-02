@@ -82,6 +82,13 @@ export function budgetStatus(spent, budget) {
   return { pct, left: budget - spent, level: spent > budget ? 'over' : pct >= 80 ? 'warn' : 'ok' };
 }
 
+// Money available to spend: everything that came in minus everything that actually left (cash, debit, card payments,
+// what went into savings goals), from the first day on. Unlike the month's Ingresos and Salidas it never resets.
+export function availableBalance({ incomes, expenses, goalMoves }) {
+  const sum = list => list.reduce((total, e) => total + e.amount, 0);
+  return sum(incomes) - sum(expenses.filter(isCashOut)) - sum(goalMoves);
+}
+
 // Money moved into a goal when its saved amount goes from `before` to `after`: positive leaves your month, negative
 // comes back to it, but never more than went in through the app (`tracked`; older savings never left your month).
 export const goalMove = (before, after, tracked) => Math.max(after - before, -tracked);
