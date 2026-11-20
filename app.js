@@ -6,10 +6,10 @@ import { cleanMoney, parseMoney, parseAmount, cardUsed, debtLeft, periodRange, f
 const KEY = 'gastos-v1';
 const THEME_KEY = 'gastos-tema';
 const THEMES = {
-  indigo: { name: 'Índigo', brand: 'linear-gradient(135deg, #6366f1, #8b5cf6 55%, #d946ef)', accent: 'light-dark(#4f46e5, #818cf8)', glow: 'rgba(139, 92, 246, .35)' },
-  oceano: { name: 'Océano', brand: 'linear-gradient(135deg, #0891b2, #2563eb 60%, #4f46e5)', accent: 'light-dark(#0369a1, #38bdf8)', glow: 'rgba(37, 99, 235, .35)' },
-  esmeralda: { name: 'Esmeralda', brand: 'linear-gradient(135deg, #059669, #047857 50%, #115e59)', accent: 'light-dark(#047857, #34d399)', glow: 'rgba(16, 185, 129, .35)' },
-  atardecer: { name: 'Atardecer', brand: 'linear-gradient(135deg, #ea580c, #dc2626 55%, #be123c)', accent: 'light-dark(#c2410c, #fb923c)', glow: 'rgba(249, 115, 22, .35)' },
+  indigo: { name: 'Índigo', brand: 'linear-gradient(135deg, #6366f1, #8250f2 55%, #c83ee2)', accent: 'light-dark(#4f46e5, #818cf8)', glow: 'rgba(139, 92, 246, .35)' },
+  oceano: { name: 'Océano', brand: 'linear-gradient(135deg, #0a80a3, #2563eb 60%, #4f46e5)', accent: 'light-dark(#0369a1, #38bdf8)', glow: 'rgba(37, 99, 235, .35)' },
+  esmeralda: { name: 'Esmeralda', brand: 'linear-gradient(135deg, #04875f, #047857 50%, #115e59)', accent: 'light-dark(#04704f, #34d399)', glow: 'rgba(16, 185, 129, .35)' },
+  atardecer: { name: 'Atardecer', brand: 'linear-gradient(135deg, #d4470b, #d42222 55%, #be123c)', accent: 'light-dark(#b43c0a, #fb923c)', glow: 'rgba(249, 115, 22, .35)' },
   rosa: { name: 'Rosa', brand: 'linear-gradient(135deg, #db2777, #be185d 50%, #9d174d)', accent: 'light-dark(#be185d, #f472b6)', glow: 'rgba(236, 72, 153, .35)' },
   grafito: { name: 'Grafito', brand: 'linear-gradient(135deg, #475569, #1e293b 60%, #0f172a)', accent: 'light-dark(#334155, #cbd5e1)', glow: 'rgba(15, 23, 42, .3)' },
   // A whole look, not just colors: see [data-style=sticker] in index.html. Light only.
@@ -53,6 +53,7 @@ const GRADIENTS = {
 
 const $app = document.getElementById('app');
 const $nav = document.querySelector('nav');
+const tabIndex = t => [...$nav.children].findIndex(b => b.dataset.v === t); // left to right on the tab bar
 
 // { name, cards: [{id, type, name, limit?, startUsed?, since?, cutDay?, payDay?}], debts: [{id, name, total, since?}],
 //   expenses: [{id, amount (cents), category, detail?, debtId?, toCard?, method, cardId?, cardName?, date (ms)}],
@@ -115,6 +116,7 @@ const fmtDate = (d, opts) => { const s = new Date(d).toLocaleDateString('es-MX',
 const time = d => new Date(d).toLocaleTimeString('es-MX', { hour: 'numeric', minute: '2-digit' });
 // A Lucide icon by name (see icons.js), sized by CSS (.i)
 const icon = name => `<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
+const tick = `<i class="tick">${icon('check')}</i>`; // the check badge of a picked tile, card or theme
 const cardsOf = type => db.cards.filter(c => c.type === type);
 const cardBg = c => {
   const i = cardsOf(c.type).indexOf(c) % 3;
@@ -128,7 +130,7 @@ const available = c => c.limit - cardUsed(c, balanceExpenses());
 const cardFace = (c, sub = c.type === 'debito' ? 'Débito' : c.limit ? `Disponible ${money(available(c))}` : 'Crédito · sin límite') =>
   `<span class="chip"></span><span><small>${sub}</small><b>${esc(c.name)}</b></span>`;
 const cardButton = (c, act, selected, sub, disabled, cls = '') =>
-  `<button class="bank-card ${cls} ${selected ? 'sel' : ''}" style="${cardBg(c)}" data-act="${act}" data-v="${esc(c.id)}" ${disabled ? 'disabled' : ''}>${cardFace(c, sub)}</button>`;
+  `<button class="bank-card ${cls} ${selected ? 'sel' : ''}" style="${cardBg(c)}" data-act="${act}" data-v="${esc(c.id)}" ${disabled ? 'disabled' : ''}>${cardFace(c, sub)}${selected ? tick : ''}</button>`;
 const owedOnCard = c => cardUsed(c, balanceExpenses());
 const today = () => new Date().toLocaleDateString('en-CA'); // local YYYY-MM-DD, the format of <input type="date">
 const dayKey = ms => new Date(ms).toLocaleDateString('en-CA');
@@ -149,10 +151,10 @@ function payTag(e) {
   if (e.method === 'efectivo') return `<span class="pay-tag cash">${icon('banknote')}Efectivo</span>`;
   const card = db.cards.find(c => c.id === e.cardId);
   const paid = e.toCard && db.cards.find(c => c.id === e.debtId);
-  return `<span class="pay-tag">${miniCard(card)}<span>${esc(card?.name ?? e.cardName)}</span><small>${METHODS[e.method].label}</small>${paid ? `<span class="pay-arrow" aria-label="pagó a">→</span>${miniCard(paid)}` : ''}</span>`;
+  return `<span class="pay-tag">${miniCard(card)}<span>${esc(card?.name ?? e.cardName)}</span><small>${METHODS[e.method].label}</small>${paid ? `<span class="pay-arrow" role="img" aria-label="pagó a">${icon('chevron-right')}</span>${miniCard(paid)}` : ''}</span>`;
 }
 const catLabel = e => e.detail ? `${e.category} · ${e.detail}` : e.category;
-const meter = (part, whole) => `<span class="meter"><i style="width:${whole ? Math.min(100, Math.max(0, part / whole * 100)) : 100}%"></i></span>`;
+const meter = (part, whole, key) => `<span class="meter"><i data-bar="${esc(key)}" style="width:${whole ? Math.min(100, Math.max(0, part / whole * 100)) : 100}%"></i></span>`;
 const sum = list => list.reduce((total, e) => total + e.amount, 0);
 const shortDate = d => new Date(d).toLocaleDateString('es-MX', { day: 'numeric', month: 'short' });
 // A day of the month typed in a form: null if empty, NaN if it isn't 1–31
@@ -183,16 +185,35 @@ function animate(el, frames, opts) {
 // Slide/fade elements in one after another (dx > 0 comes from the right), and grow the chart bars.
 function enter(els = [...$app.children], dx = 0) {
   els.forEach((el, i) => animate(el, [{ opacity: 0, transform: `translate(${dx}px, ${dx ? 0 : 14}px)` }, { opacity: 1, transform: 'none' }], { delay: i * 40 }));
-  for (const bar of $app.querySelectorAll('.bar i, .budget .meter i')) animate(bar, [{ transform: 'scaleX(0)' }, { transform: 'none' }], { duration: 700, delay: 150 });
+  // Icons appear a beat after their row, with a little spring (like SF Symbols' "appear")
+  els.forEach((el, i) => el.querySelectorAll('.ico > .i, .plus > .i').forEach((svg, j) =>
+    animate(svg, [{ opacity: 0, transform: 'scale(.5)' }, { opacity: 1, transform: 'none' }], { duration: 450, easing: SPRING, delay: 120 + i * 40 + Math.min(j, 8) * 30 })));
+  drawIn($app.querySelector('.empty .i'));
+  for (const bar of $app.querySelectorAll('.bar i, .meter i')) animate(bar, [{ transform: 'scaleX(0)' }, { transform: 'none' }], { duration: 700, delay: 150 });
   animate($app.querySelector('.ring .val'), [{ strokeDashoffset: 100 }, {}], { duration: 900, delay: 150 });
   $app.querySelectorAll('.cols i').forEach((col, i) => animate(col, [{ transform: 'scaleY(0)' }, { transform: 'none' }], { duration: 500, delay: 150 + i * 12 }));
   animate($app.querySelector('.donut svg'), [{ opacity: 0, transform: 'rotate(-200deg) scale(.7)' }, { opacity: 1, transform: 'rotate(-90deg)' }], { duration: 800, delay: 150 });
 }
 
-const pop = el => animate(el, [{ transform: 'scale(.92)' }, { transform: 'scale(1.04)' }, { transform: 'none' }], { duration: 320, easing: 'ease-out' });
+// …and a check badge in it (a tile just picked) springs in and draws its check
+const pop = el => {
+  animate(el?.querySelector('.tick'), [{ transform: 'scale(0) rotate(-45deg)' }, { transform: 'none' }], { duration: 450, easing: SPRING });
+  animate(el?.querySelector('.tick .i'), [{ strokeDashoffset: -23 }, { strokeDashoffset: 0 }], { duration: 300, delay: 120 });
+  return animate(el, [{ transform: 'scale(.92)' }, { transform: 'scale(1.04)' }, { transform: 'none' }], { duration: 320, easing: 'ease-out' });
+};
+// Segmented controls re-render on every pick: the thumb slides over from where it was (`from`: the old pick's offsetLeft)
+const slideThumb = (sel, from) => animate(sel?.parentElement, [from === undefined ? { opacity: 0 } : { transform: `translateX(${from - sel?.offsetLeft}px)` }, {}], { pseudoElement: '::before' });
+// Draws an icon's strokes on, one after another (SF Symbols' "draw"): empty states
+const drawIn = svg => svg?.querySelectorAll('*').forEach((s, i) => {
+  const len = s.getTotalLength(), dash = `${len}px`;
+  animate(s, [{ strokeDasharray: dash, strokeDashoffset: dash }, { strokeDasharray: dash, strokeDashoffset: '0px' }], { duration: 700, delay: 200 + i * 120, easing: 'ease-in-out' });
+});
 // Lucide's trash-2, split so the lid (its last two strokes) can open on its own
 const [can1, can2, can3, lid1, lid2] = ICONS['trash-2'].match(/<path[^>]*\/>/g);
 const BIN = `<svg class="bin-can" viewBox="0 0 24 24" aria-hidden="true">${can1}${can2}${can3}</svg><svg class="bin-lid" viewBox="0 0 24 24" aria-hidden="true">${lid1}${lid2}</svg>`;
+
+// What's left of a removed row folds shut, so what's below slides up instead of jumping when the screen re-renders
+const collapse = el => animate(el, [{ height: `${el.offsetHeight}px` }, { height: 0, paddingBlock: 0, marginBlock: 0 }], { duration: 250, fill: 'forwards' });
 
 // Deleting: a copy of the item flies in an arc into a trash can that pops up, opens, closes and wobbles.
 // The original hides right away; resolves when the copy lands, so the caller can re-render then.
@@ -221,16 +242,24 @@ function trashFx(el) {
     bin.animate([0, -10, 8, -5, 0].map(deg => ({ transform: `rotate(${deg}deg)` })), { duration: 420, delay: 160 }).finished
       .then(() => bin.animate([{ opacity: 1 }, { opacity: 0, transform: 'scale(0)' }], { duration: 220, delay: 120, fill: 'forwards' }).finished)
       .then(() => bin.remove());
+    return collapse(el);
   });
 }
 
+// A toast leaves the way it came, back up (only once, if asked twice)
+function hideToast(t) {
+  if (!t || t.classList.contains('out')) return;
+  t.classList.add('out');
+  animate(t, [{}, { opacity: 0, transform: 'translateY(-24px) scale(.92)' }], { duration: 250, easing: 'ease-in', fill: 'forwards' }).then(() => t.remove());
+}
+
 function toast(msg, type = 'ok') {
-  document.querySelector('.toast')?.remove();
+  document.querySelectorAll('.toast').forEach(hideToast); // the new one takes its place
   const t = Object.assign(document.createElement('div'), { className: `toast ${type}`, role: 'status' });
   t.innerHTML = `<i>${icon(type === 'ok' ? 'check' : 'triangle-alert')}</i>${esc(msg)}`;
   document.body.append(t);
-  animate(t, [{ opacity: 0, transform: 'translateY(-16px) scale(.5)' }, { opacity: 1, transform: 'none' }], { duration: 500, easing: SPRING });
-  setTimeout(() => animate(t, [{}, { opacity: 0, transform: 'translateY(-12px) scale(.8)' }], { duration: 250, fill: 'forwards' }).then(() => t.remove()), 2200);
+  animate(t, [{ opacity: 0, transform: 'translateY(-24px) scale(.92)' }, { opacity: 1, transform: 'none' }], { duration: 500, easing: SPRING });
+  setTimeout(() => hideToast(t), 2200);
 }
 
 // Attention without celebrating: shake, a red flash, a blink
@@ -323,6 +352,24 @@ function countUp() {
     if (from === undefined || from === to || !motion) continue; // first time shown: no count
     el.textContent = money(from);
     celebrating.then(() => tweenNumber(el, from, to));
+  }
+}
+
+// Bars, columns and rings marked data-bar="key" that changed since this tab last showed them (new data, another
+// period or filter) move from the old size to the new one instead of starting from zero. Like countUp they wait
+// behind a confirmation, and they take as long as the numbers, so a bar and its amount land together.
+const shownBars = {};
+function moveBars() {
+  for (const el of $app.querySelectorAll('[data-bar]')) {
+    const key = tab + el.dataset.bar, svg = el.matches('circle'), from = shownBars[key];
+    const to = shownBars[key] = svg ? `${el.getAttribute('stroke-dasharray')}|${el.getAttribute('stroke-dashoffset')}` : parseFloat(el.style.width || el.style.height);
+    if (from === undefined || from === to || !to || !motion) continue;
+    for (const a of [...el.getAnimations(), ...el.parentNode.getAnimations()]) a.cancel(); // enter()'s grow from zero, the donut's spin
+    const [dash, offset] = svg ? from.split('|') : [];
+    const move = el.animate(svg ? [{ strokeDasharray: dash, strokeDashoffset: offset }, {}] : [{ transform: `scale${el.style.height ? 'Y' : 'X'}(${from / to})` }, {}],
+      { duration: 900, easing: 'cubic-bezier(.33, 1, .68, 1)' }); // tweenNumber's ease-out
+    move.pause(); // shows the old size until any confirmation is gone
+    celebrating.then(() => move.play());
   }
 }
 
@@ -481,11 +528,20 @@ function openSheet(title, fields, onSave, { preview, onDelete } = {}) {
       </div>
       ${onDelete ? '<button type="button" class="sheet-delete">Eliminar</button>' : ''}
     </form>`;
-  d.querySelector('.secondary').onclick = () => d.close();
-  if (onDelete) d.querySelector('.sheet-delete').onclick = () => { if (onDelete() !== false) d.close(); };
+  // Closing plays the way out first; inert so a second tap can't save twice meanwhile (the lock closes it at once: d.close())
+  const shut = () => {
+    d.inert = true;
+    d.classList.add('out');
+    animate(d, [{}, { opacity: 0, transform: 'scale(.94)' }], { duration: 200, easing: 'ease-in', fill: 'forwards' }).then(() => d.close());
+  };
+  d.querySelector('.secondary').onclick = shut;
+  if (onDelete) d.querySelector('.sheet-delete').onclick = () => { if (onDelete() !== false) shut(); };
   d.querySelector('form').onsubmit = e => {
+    e.preventDefault();
     const error = onSave(Object.fromEntries(new FormData(e.target)));
-    if (error) { e.preventDefault(); d.querySelector('.sheet-error').textContent = error; }
+    if (!error) return shut();
+    d.querySelector('.sheet-error').textContent = error;
+    shake(d.querySelector('.primary'));
   };
   if (preview) {
     const form = d.querySelector('form');
@@ -828,12 +884,13 @@ function renameCategory(from, to) {
 // ---------- Views ----------
 
 function render() {
-  document.querySelector('.toast.error')?.remove(); // the error was about the previous screen
+  document.querySelectorAll('.toast.error').forEach(hideToast); // the error was about the previous screen
   $nav.hidden = !db;
   if (!db) return void ($app.innerHTML = viewSetup());
   for (const b of $nav.children) b.classList.toggle('active', b.dataset.v === tab);
+  $nav.style.setProperty('--i', tabIndex(tab)); // the pill glides there
   $app.innerHTML = { registrar: viewRegistrar, historial: viewHistorial, estadisticas: viewEstadisticas, ahorros: viewAhorros, perfil: viewPerfil }[tab]();
-  requestAnimationFrame(countUp); // next frame, once a confirmation shown right after this render exists
+  requestAnimationFrame(() => { countUp(); moveBars(); }); // next frame, once a confirmation shown right after this render exists
 }
 
 function viewSetup() {
@@ -956,7 +1013,7 @@ function viewBudgets() {
         <b>${esc(k)}</b>
         <small>${level === 'over' ? 'Te pasaste por' : 'Disponible'}</small>
         <span class="budget-left">${money(Math.abs(left))}</span>
-        ${meter(spent[k], db.budgets[k])}
+        ${meter(spent[k], db.budgets[k], k)}
         <small>${money(spent[k])} de ${money(db.budgets[k])}</small>
       </button>`;
   };
@@ -964,7 +1021,7 @@ function viewBudgets() {
     <h2 class="head-row">Presupuestos<button class="link" data-act="edit-budgets">Editar</button></h2>
     <div class="panel budget-sum ${level}">
       <div class="ring" role="img" aria-label="Llevas ${pct}% de tus presupuestos">
-        <svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="42"/>${used ? `<circle class="val" cx="50" cy="50" r="42" pathLength="100" stroke-dasharray="100" stroke-dashoffset="${100 - Math.min(100, pct)}"/>` : ''}</svg>
+        <svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="42"/>${used ? `<circle class="val" data-bar="ring" cx="50" cy="50" r="42" pathLength="100" stroke-dasharray="100" stroke-dashoffset="${100 - Math.min(100, pct)}"/>` : ''}</svg>
         <b>${pct}%</b>
       </div>
       <div class="budget-sum-main">
@@ -979,7 +1036,7 @@ function viewBudgets() {
 
 // `flag`: optional HTML under the label (budget warning)
 const choice = (act, value, label, iconName, color, selected, cls = '', sub = '', flag = '') =>
-  `<button class="choice ${cls} ${selected ? 'sel' : ''}" style="--c:${color}" data-act="${act}" data-v="${esc(value)}"><span class="ico">${icon(iconName)}</span><span>${esc(label)}${sub ? `<small>${esc(sub)}</small>` : ''}${flag}</span></button>`;
+  `<button class="choice ${cls} ${selected ? 'sel' : ''}" style="--c:${color}" data-act="${act}" data-v="${esc(value)}"><span class="ico">${icon(iconName)}</span><span>${esc(label)}${sub ? `<small>${esc(sub)}</small>` : ''}${flag}</span>${selected ? tick : ''}</button>`;
 
 // Warning on a category tile while registering: already over its budget, or over/near it with this amount.
 function budgetFlag(key) {
@@ -1088,9 +1145,9 @@ function stepMethod() {
     ${over > 0 ? `<p class="note warn">${icon('triangle-alert')} Este gasto supera tu disponible por ${money(over)}</p>` : ''}
     ${selected && nearLimit(selected) ? `<p class="note near-note">${icon('triangle-alert')} Con este gasto usarías el ${Math.round(usageAfter(selected) * 100)}% de tu límite de ${esc(selected.name)}</p>` : ''}
     ${draft.editId || draft.fixedId || isDebt() ? '' : `
-      <label class="repeat"><input type="checkbox" data-change="repeat" ${draft.repeat ? 'checked' : ''}>
+      <label class="repeat"><input type="checkbox" role="switch" data-change="repeat" ${draft.repeat ? 'checked' : ''}>
         <span><b>Se repite cada mes</b><small>Te lo recuerdo cada día ${+draft.date.slice(8)} para registrarlo con un toque</small></span></label>
-      <label class="repeat"><input type="checkbox" data-change="quick" ${draft.quick ? 'checked' : ''}>
+      <label class="repeat"><input type="checkbox" role="switch" data-change="quick" ${draft.quick ? 'checked' : ''}>
         <span><b>Guardar como gasto rápido</b><small>Aparece en Inicio para anotarlo otra vez con un toque</small></span></label>`}`;
 }
 
@@ -1124,7 +1181,7 @@ function viewFilters(searching = false) {
 
 const summary = list => `
   <div class="summary">
-    <div><small>Total</small><b>${money(sum(list))}</b></div>
+    <div><small>Total</small><b data-count="total-${tab}" data-value="${sum(list)}">${money(sum(list))}</b></div>
     <div><small>Gastos</small><b>${list.length}</b></div>
   </div>`;
 const emptyState = `<p class="empty">${icon('receipt')}Sin gastos en este periodo</p>`;
@@ -1174,7 +1231,7 @@ function viewCompare(list, total) {
   const was = sum(before);
   if (!was) return '';
   const name = { mes: `en ${fmtDate(prevStart, { month: 'long' }).toLowerCase()}`, semana: 'la semana anterior', dia: 'el día anterior' }[filter.period];
-  const delta = ({ diff, pct }) => `<small class="delta ${diff > 0 ? 'up' : 'down'}">${diff > 0 ? '↑' : '↓'} ${pct === null ? 'nuevo' : `${Math.abs(pct)}%`} · ${money(Math.abs(diff))} ${diff > 0 ? 'más' : 'menos'}</small>`;
+  const delta = ({ diff, pct }) => `<small class="delta ${diff > 0 ? 'up' : 'down'}">${icon(diff > 0 ? 'arrow-up' : 'arrow-down')} ${pct === null ? 'nuevo' : `${Math.abs(pct)}%`} · ${money(Math.abs(diff))} ${diff > 0 ? 'más' : 'menos'}</small>`;
   const all = compareTotals([['Total', total]], [['Total', was]])[0];
   const rows = compareTotals(totalsBy(list, e => e.category), totalsBy(before, e => e.category)).slice(0, 5);
   return `
@@ -1191,21 +1248,21 @@ function viewCompare(list, total) {
 // Income vs. spending of the period, as two bars on the same scale. Tapping a bar lists what makes it up.
 function viewBalance(b) {
   const { income, out } = b, max = Math.max(income, out), diff = income - out;
-  const bar = (label, cents, rows, cls = '') => `
+  const bar = (label, cents, rows, key, cls = '') => `
     <button class="bar-row flow-toggle" data-act="flow" aria-expanded="false">
       <span class="bar-label"><span>${label}<span class="chev">${icon('chevron-right')}</span></span><small>${money(cents)}</small></span>
-      <span class="bar"><i class="${cls}" style="width:${cents / max * 100}%"></i></span>
+      <span class="bar"><i class="${cls}" data-bar="${key}" style="width:${cents / max * 100}%"></i></span>
     </button>
-    <div class="flow-detail" hidden>${rows.map(r => `
+    <div class="flow-detail"><div>${rows.map(r => `
       <div class="flow-row">
         <span class="ico" style="--c:${r.color}">${icon(r.icon)}</span>
         <span class="flow-name"><b>${esc(r.name)}</b><small>${esc(r.note)}</small></span>
         <b>${money(r.cents)}</b>
-      </div>`).join('')}</div>`;
+      </div>`).join('')}</div></div>`;
   return `
     <h2>Ingresos y salidas</h2>
     <div class="panel">
-      ${bar(`${icon('coins')} Ingresos`, income, flowRows('in', b), 'income-bar')}${bar(`${icon('receipt')} Salidas`, out, flowRows('out', b))}
+      ${bar(`${icon('coins')} Ingresos`, income, flowRows('in', b), 'in', 'income-bar')}${bar(`${icon('receipt')} Salidas`, out, flowRows('out', b), 'out')}
       <p class="note">${diff >= 0 ? `Te quedaron ${money(diff)}: el ${Math.round(diff / income * 100)}% de lo que ingresó.`
         : `<span class="warn">Salieron ${money(-diff)} más de lo que ingresó.</span>`}
         Las compras con crédito cuentan hasta que pagas la tarjeta.${goalsNote(b)} Toca Ingresos o Salidas para ver el detalle.</p>
@@ -1239,7 +1296,7 @@ function viewGoalStats() {
     ${goals.length || gone.length ? `
       <div class="panel goal-stats">
         ${goals.map(({ g, done }) => row(g.name, done ? '¡Meta cumplida!' : `Llevas ${money(g.saved)} de ${money(g.amount)} · ${Math.floor(g.saved / g.amount * 100)}%`,
-          done ? 'trophy' : 'target', inPeriod(g.id), meter(g.saved, g.amount))).join('')}
+          done ? 'trophy' : 'target', inPeriod(g.id), meter(g.saved, g.amount, g.id))).join('')}
         ${gone.map(id => row('Meta eliminada', 'Su dinero regresó a tu disponible', 'target', inPeriod(id))).join('')}
       </div>` : ''}
     <p class="note">${income && net > 0 ? `Apartaste el ${Math.round(net / income * 100)}% de lo que ingresó en el periodo. ` : ''}${target ? `Entre todas tus metas llevas ${money(saved)} de ${money(target)}. ` : ''}A la derecha, lo que le aportaste a cada una en el periodo.</p>`;
@@ -1276,7 +1333,7 @@ function viewEstadisticas() {
   const bar = ([label, cents]) => `
     <div class="bar-row">
       <p class="bar-label"><span>${esc(label)}</span><small>${money(cents)} · ${pct(cents)}</small></p>
-      <div class="bar"><i style="width:${cents / total * 100}%"></i></div>
+      <div class="bar"><i data-bar="${esc(label)}" style="width:${cents / total * 100}%"></i></div>
     </div>`;
   return `
     <h1>Estadísticas</h1>
@@ -1310,7 +1367,7 @@ function viewColumns(list) {
     : (i === 0 || (i + 1) % 5 === 0 ? i + 1 : '');
   return `
     <p class="cols-caption">Más alto: ${name(bins.indexOf(max))} · ${money(max)}</p>
-    <div class="cols">${bins.map((cents, i) => `<button data-act="col" aria-label="${name(i)}: ${money(cents)}"><i style="height:${cents / max * 100}%"></i></button>`).join('')}</div>
+    <div class="cols">${bins.map((cents, i) => `<button data-act="col" aria-label="${name(i)}: ${money(cents)}"><i data-bar="col${i}" style="height:${cents / max * 100}%"></i></button>`).join('')}</div>
     <div class="ticks" aria-hidden="true">${bins.map((_, i) => `<span>${tick(i)}</span>`).join('')}</div>`;
 }
 
@@ -1322,7 +1379,7 @@ function viewDonut(list, total) {
   let start = 0;
   const arcs = slots.map(([c, cents]) => {
     const len = cents / total * C;
-    const arc = `<circle cx="50" cy="50" r="${r}" style="stroke: var(--cat-${c})" stroke-dasharray="${Math.max(len - gap, .5)} ${C}" stroke-dashoffset="${-start}"/>`;
+    const arc = `<circle data-bar="arc${c}" cx="50" cy="50" r="${r}" style="stroke: var(--cat-${c})" stroke-dasharray="${Math.max(len - gap, .5)} ${C}" stroke-dashoffset="${-start}"/>`;
     start += len;
     return arc;
   });
@@ -1338,10 +1395,10 @@ function viewAhorros() {
     .sort((a, b) => a.done - b.done || a.g.date.localeCompare(b.g.date)); // closest date first, finished last
   const active = plans.filter(p => !p.done && !p.overdue);
   const totalDaily = active.reduce((total, p) => total + p.daily, 0);
-  const status = ({ left, days, daily, done, overdue }) =>
+  const status = ({ g, left, days, daily, done, overdue }) =>
     done ? `${icon('party-popper')} ¡Meta cumplida!`
     : overdue ? `<span class="warn">La fecha ya pasó · te faltan ${money(left)}</span>`
-    : `<b>${money(daily)}</b> al día · ${days === 0 ? 'hoy es la fecha' : `faltan ${daysText(days)}`}`;
+    : `<b data-count="daily-${g.id}" data-value="${daily}">${money(daily)}</b> al día · ${days === 0 ? 'hoy es la fecha' : `faltan ${daysText(days)}`}`;
   const card = p => `
     <div class="goal">
       <button class="goal-main" data-act="edit-goal" data-v="${esc(p.g.id)}">
@@ -1350,7 +1407,7 @@ function viewAhorros() {
           <span><b>${esc(p.g.name)}</b><small>Meta ${money(p.g.amount)} · ${fmtDate(localDate(p.g.date), { day: 'numeric', month: 'short', year: 'numeric' })}</small></span>
         </span>
         <span class="goal-daily">${status(p)}</span>
-        ${meter(p.g.saved, p.g.amount)}
+        ${meter(p.g.saved, p.g.amount, p.g.id)}
         <small>Llevas ${money(p.g.saved)} de ${money(p.g.amount)} (${Math.floor(p.g.saved / p.g.amount * 100)}%)</small>
       </button>
       <div class="goal-actions">
@@ -1362,7 +1419,7 @@ function viewAhorros() {
     <h1>Ahorros y metas</h1>
     ${active.length ? `
       <div class="summary">
-        <div><small>${active.length > 1 ? `Para cumplir tus ${active.length} metas` : 'Para cumplir tu meta'} ahorra</small><b>${money(totalDaily)} al día</b></div>
+        <div><small>${active.length > 1 ? `Para cumplir tus ${active.length} metas` : 'Para cumplir tu meta'} ahorra</small><b><span data-count="daily" data-value="${totalDaily}">${money(totalDaily)}</span> al día</b></div>
       </div>` : ''}
     ${plans.length ? `<h2>Tus metas</h2>${plans.map(card).join('')}` : `<p class="empty">${icon('target')}Aún no tienes metas de ahorro</p>`}
     <button class="primary" data-act="add-goal">+ Nueva meta</button>
@@ -1377,7 +1434,7 @@ function viewPerfil() {
       <div class="card-wrap">
         ${cardButton(c, 'edit-card', false)}
         <button class="card-del" data-act="del-card" data-v="${esc(c.id)}" aria-label="Eliminar ${esc(c.name)}">${icon('x')}</button>
-        ${type === 'credito' && c.limit ? `<p class="card-meta">Usado ${money(used)} de ${money(c.limit)}${meter(used, c.limit)}</p>` : ''}
+        ${type === 'credito' && c.limit ? `<p class="card-meta">Usado ${money(used)} de ${money(c.limit)}${meter(used, c.limit, c.id)}</p>` : ''}
         ${type === 'credito' && c.cutDay ? `<p class="card-meta">${statementText(c)}</p>` : ''}
       </div>`;
   }).join('');
@@ -1396,8 +1453,8 @@ function viewPerfil() {
     return `
       <div class="debt-row">
         <button class="debt-main" data-act="edit-debt" data-v="${esc(d.id)}">
-          <span><b>${esc(d.name)}</b><small>${left ? `Debes ${money(left)} de ${money(d.total)}` : 'Liquidada ✓'}</small></span>
-          ${meter(d.total - left, d.total)}
+          <span><b>${esc(d.name)}</b><small>${left ? `Debes ${money(left)} de ${money(d.total)}` : `Liquidada ${icon('check')}`}</small></span>
+          ${meter(d.total - left, d.total, d.id)}
         </button>
         <button class="icon-btn danger" data-act="del-debt" data-v="${esc(d.id)}" aria-label="Eliminar ${esc(d.name)}">${icon('x')}</button>
       </div>`;
@@ -1432,7 +1489,7 @@ function viewPerfil() {
     <p class="note">${db.quick.length ? 'Toca uno para cambiar su nombre o monto, o para quitarlo. ' : ''}Al registrar un gasto marca «Guardar como gasto rápido» y lo anotas otra vez con un toque desde Inicio.</p>
     <h2>${icon('palette')} Tema</h2>
     <div class="themes">${Object.entries(THEMES).map(([k, t]) => `
-      <button class="theme ${theme.color === k ? 'sel' : ''}" data-act="theme" data-k="color" data-v="${k}"><span style="background:${t.swatch ?? t.brand}"></span>${t.name}</button>`).join('')}</div>
+      <button class="theme ${theme.color === k ? 'sel' : ''}" data-act="theme" data-k="color" data-v="${k}"><span style="background:${t.swatch ?? t.brand}"></span>${t.name}${theme.color === k ? tick : ''}</button>`).join('')}</div>
     ${currentTheme().style ? '<p class="note">Este tema siempre es claro.</p>' : segmented('theme', 'scheme', SCHEMES, theme.scheme)}
     <h2>${icon('lock')} Bloqueo</h2>
     ${!crypto.subtle ? '<p class="note">El bloqueo funciona en la app publicada (https).</p>' : `
@@ -1493,6 +1550,8 @@ function unlock() {
   const el = document.querySelector('.lock');
   if (!el) return;
   animate(el, [{}, { opacity: 0, transform: 'scale(1.06)' }], { duration: 250, fill: 'forwards' });
+  const mid = `50% ${scrollY + innerHeight / 2}px`; // the middle of the screen, not of the whole page
+  animate($app, [{ transform: 'scale(.96)', transformOrigin: mid }, { transformOrigin: mid }], { duration: 450 });
   setTimeout(() => el.remove(), 250);
   for (const fn of afterUnlock.splice(0)) fn();
 }
@@ -1600,16 +1659,19 @@ function closeDraft() {
 const actions = {
   tab: ({ v }) => {
     if (v === tab) return scrollTo({ top: 0, behavior: 'smooth' });
+    const dx = tabIndex(v) > tabIndex(tab) ? 24 : -24; // the page comes in from the side its tab is on
     tab = v;
     render();
     scrollTo(0, 0);
-    enter();
-    pop($nav.querySelector('.active svg'));
+    enter([$app], dx); // the tab bar's icon bounces by itself (CSS)
   },
   'setup-count': ({ type, d }) => {
-    if (+d > 0 && setup[type].length < 10) setup[type].push({ name: '', limit: '', used: '' });
+    const before = setup[type].length;
+    if (+d > 0 && before < 10) setup[type].push({ name: '', limit: '', used: '' });
     if (+d < 0) setup[type].pop();
     render();
+    // the count rolls in like an odometer: from below going up, from above going down
+    if (setup[type].length !== before) animate($app.querySelector(`[data-type=${type}] + b`), [{ opacity: 0, transform: `translateY(${d * 10}px)` }, {}], { duration: 250 });
     if (+d > 0) enter([...$app.querySelectorAll(`.setup-card[data-type=${type}]`)].slice(-1));
   },
   'setup-done': () => {
@@ -1625,6 +1687,7 @@ const actions = {
     save();
     render();
     enter();
+    animate($nav, [{ transform: 'translateY(150%)' }, {}], { duration: 600, easing: SPRING });
     toast(`¡Listo, ${db.name}!`);
   },
   new: () => {
@@ -1651,7 +1714,9 @@ const actions = {
     const f = db.fixed.find(x => x.id === v);
     f.paidMonth = monthKey(new Date());
     save();
-    await animate(byV(v).closest('.reminder'), [{}, { opacity: 0, transform: 'translateX(60px)' }], { duration: 250, fill: 'forwards' });
+    const row = byV(v).closest('.reminder');
+    await animate(row, [{}, { opacity: 0, transform: 'translateX(60px)' }], { duration: 250, fill: 'forwards' });
+    await collapse(row);
     render();
     toast(`${f.name}: este mes no`);
   },
@@ -1662,9 +1727,8 @@ const actions = {
   // Ingresos / Salidas in Estadísticas: open or close the list under the bar
   flow: (_, el) => {
     const open = el.getAttribute('aria-expanded') !== 'true', list = el.nextElementSibling;
-    el.setAttribute('aria-expanded', open);
-    list.hidden = !open;
-    if (open) [...list.children].forEach((row, i) => animate(row, [{ opacity: 0, transform: 'translateY(-6px)' }, {}], { delay: i * 30 }));
+    el.setAttribute('aria-expanded', open); // CSS opens or closes the list under it
+    if (open) [...list.firstElementChild.children].forEach((row, i) => animate(row, [{ opacity: 0, transform: 'translateY(-6px)' }, {}], { delay: i * 30 }));
   },
   'pin-key': async ({ v }) => {
     pinTyped = v === 'del' ? pinTyped.slice(0, -1) : (pinTyped + v).slice(0, 4);
@@ -1738,7 +1802,8 @@ const actions = {
     if (draft.step) draft.step--;
     else closeDraft();
     render();
-    enter(draft ? [...$app.querySelectorAll('.step > *')] : undefined, draft ? -40 : 0);
+    enter(draft ? [...$app.querySelectorAll('.step > *')] : [$app], draft ? -40 : -24);
+    if (draft) animate($app.querySelectorAll('.progress i')[draft.step + 1], [{ transform: 'none' }, { transform: 'scaleX(0)' }], { duration: 300, pseudoElement: '::after' });
   },
   next: () => {
     if (draft.step === 0 && !parseAmount(draft.amountText)) return showError('Escribe una cantidad mayor a 0');
@@ -1761,7 +1826,7 @@ const actions = {
       }
       render();
       enter([...$app.querySelectorAll('.step > *')], 40);
-      return animate($app.querySelectorAll('.progress i')[draft.step], [{ transform: 'scaleX(0)' }, { transform: 'none' }], { duration: 400 });
+      return animate($app.querySelectorAll('.progress i')[draft.step], [{ transform: 'scaleX(0)' }, { transform: 'none' }], { duration: 400, pseudoElement: '::after' });
     }
     if (!draft.method) return showError('Elige cómo pagaste');
     const card = db.cards.find(c => c.id === draft.cardId);
@@ -1825,12 +1890,13 @@ const actions = {
     $app.querySelector('[data-input=cat-other]')?.focus(); // "Otro" needs text; the detail is optional, so no keyboard for it
     $app.querySelector('.debt-picker')?.scrollIntoView({ behavior: motion ? 'smooth' : 'auto', block: 'nearest' });
   },
-  'debt-kind': ({ v }) => {
+  'debt-kind': ({ v }, el) => {
     const cards = cardsOf('credito').filter(c => owedOnCard(c) > 0); // only cards with something to pay
+    const from = el.parentElement.querySelector('.sel')?.offsetLeft;
     draft.debtKind = v;
     draft.debtId = v === 'card' && cards.length === 1 ? cards[0].id : null;
     render();
-    pop($app.querySelector('.debt-picker .segmented .sel'));
+    slideThumb($app.querySelector('.debt-picker .segmented .sel'), from);
     enter([...$app.querySelectorAll('.debt-picker .segmented ~ *')]);
   },
   debt: ({ v }) => {
@@ -1863,11 +1929,12 @@ const actions = {
     pop($app.querySelector('.bank-card.sel'));
     blink($app.querySelector('.bank-card.sel.near small'));
   },
-  filter: ({ k, v }) => {
+  filter: ({ k, v }, el) => {
+    const from = el.parentElement.querySelector('.sel')?.offsetLeft;
     filter[k] = v;
     if (k === 'period') filter.offset = 0;
     render();
-    pop($app.querySelector(`[data-k=${k}].sel`));
+    slideThumb($app.querySelector(`[data-k=${k}].sel`), from);
     enter([...$app.querySelectorAll('.filters ~ *')]);
   },
   shift: ({ d }) => {
@@ -1919,7 +1986,7 @@ const actions = {
     for (const b of el.parentElement.children) b.classList.toggle('sel', b === el);
     $app.querySelector('.cols-caption').textContent = el.getAttribute('aria-label');
   },
-  theme: ({ k, v }) => {
+  theme: ({ k, v }, el) => {
     const change = () => {
       theme[k] = v;
       applyTheme();
@@ -1927,9 +1994,14 @@ const actions = {
       toast(k === 'color' ? `Tema ${THEMES[v].name}` : `Modo ${SCHEMES[v].toLowerCase()}`);
       localStorage.setItem(THEME_KEY, JSON.stringify(theme));
     };
-    // Cross-fade the whole screen into the new colors
-    if (motion && document.startViewTransition) document.startViewTransition(change);
-    else change();
+    if (!motion || !document.startViewTransition) return change();
+    // The new colors spread in a circle from the tapped option (.theming turns off the default cross-fade)
+    const r = el.getBoundingClientRect(), at = `at ${r.left + r.width / 2}px ${r.top + r.height / 2}px`, html = document.documentElement;
+    html.classList.add('theming');
+    const vt = document.startViewTransition(change);
+    vt.ready.then(() => html.animate({ clipPath: [`circle(0 ${at})`, `circle(${Math.hypot(innerWidth, innerHeight)}px ${at})`] },
+      { duration: 500, easing: EASE, pseudoElement: '::view-transition-new(root)' }), () => {});
+    vt.finished.then(() => html.classList.remove('theming'));
   },
   export: exportBackup,
 };
